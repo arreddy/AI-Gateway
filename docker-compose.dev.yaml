@@ -1,0 +1,424 @@
+version: '3.9'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: astra-postgres
+    environment:
+      POSTGRES_DB: astra
+      POSTGRES_USER: astra
+      POSTGRES_PASSWORD: astra_dev_password
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --lc-collate=C --lc-ctype=C"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U astra"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - astra-network
+    command:
+      - "postgres"
+      - "-c"
+      - "max_connections=200"
+      - "-c"
+      - "shared_buffers=256MB"
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: astra-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - astra-network
+    command:
+      - "redis-server"
+      - "--maxmemory"
+      - "512mb"
+      - "--maxmemory-policy"
+      - "allkeys-lru"
+      - "--save"
+      - "900 1"
+
+  # Apache Kafka
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: astra-zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_SYNC_LIMIT: 2
+      ZOOKEEPER_INIT_LIMIT: 5
+    ports:
+      - "2181:2181"
+    networks:
+      - astra-network
+    healthcheck:
+      test: ["CMD", "echo", "ruok", "|", "nc", "localhost", "2181"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: astra-kafka
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://kafka:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+    ports:
+      - "9092:9092"
+    networks:
+      - astra-network
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions.sh", "--bootstrap-server=kafka:9092"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ClickHouse for Analytics
+  clickhouse:
+    image: clickhouse/clickhouse-server:latest
+    container_name: astra-clickhouse
+    environment:
+      CLICKHOUSE_DB: astra
+      CLICKHOUSE_USER: astra
+      CLICKHOUSE_PASSWORD: astra_dev_password
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+    networks:
+      - astra-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8123/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Prometheus for Metrics
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: astra-prometheus
+    volumes:
+      - ./infrastructure/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      - astra-network
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=7d'
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9090/-/healthy"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Grafana for Dashboards
+  grafana:
+    image: grafana/grafana:latest
+    container_name: astra-grafana
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: 'false'
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./infrastructure/grafana/provisioning:/etc/grafana/provisioning
+    depends_on:
+      - prometheus
+    networks:
+      - astra-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Jaeger for Distributed Tracing
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: astra-jaeger
+    environment:
+      COLLECTOR_ZIPKIN_HOST_PORT: :9411
+      COLLECTOR_OTLP_ENABLED: 'true'
+    ports:
+      - "16686:16686"  # Jaeger UI
+      - "14268:14268"  # Collector
+      - "6831:6831/udp" # Thrift compact
+      - "4317:4317"    # OTLP gRPC
+    networks:
+      - astra-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:14269/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Loki for Logging
+  loki:
+    image: grafana/loki:latest
+    container_name: astra-loki
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./infrastructure/loki-config.yml:/etc/loki/local-config.yml
+      - loki_data:/loki
+    networks:
+      - astra-network
+    command: -config.file=/etc/loki/local-config.yml
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3100/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Promtail for Log Collection
+  promtail:
+    image: grafana/promtail:latest
+    container_name: astra-promtail
+    volumes:
+      - ./infrastructure/promtail-config.yml:/etc/promtail/config.yml
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - astra-network
+    command: -config.file=/etc/promtail/config.yml
+    depends_on:
+      - loki
+
+  # Gateway Service
+  gateway-service:
+    build:
+      context: ./backend/gateway-service
+      dockerfile: Dockerfile
+    container_name: astra-gateway
+    environment:
+      PORT: 8080
+      ENVIRONMENT: development
+      LOG_LEVEL: debug
+      DATABASE_URL: "postgresql://astra:astra_dev_password@postgres:5432/astra"
+      REDIS_URL: "redis://redis:6379"
+      KAFKA_BROKERS: "kafka:29092"
+      JWT_SECRET: "dev-secret-key-change-in-production"
+      AUTH_SERVICE_URL: "grpc://auth-service:9000"
+      ROUTING_ENGINE_URL: "grpc://routing-engine:9000"
+      GOVERNANCE_ENGINE_URL: "grpc://governance-engine:9000"
+      OBSERVABILITY_SERVICE_URL: "grpc://observability-service:9000"
+      OPENAI_API_KEY: "${OPENAI_API_KEY}"
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY}"
+    ports:
+      - "8080:8080"
+      - "9000:9000"  # gRPC
+      - "6060:6060"  # pprof
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    networks:
+      - astra-network
+    volumes:
+      - ./backend/gateway-service:/app
+    command: go run main.go
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Auth Service
+  auth-service:
+    build:
+      context: ./backend/auth-service
+      dockerfile: Dockerfile
+    container_name: astra-auth-service
+    environment:
+      PORT: 9000
+      DATABASE_URL: "postgresql://astra:astra_dev_password@postgres:5432/astra"
+      REDIS_URL: "redis://redis:6379"
+      JWT_SECRET: "dev-secret-key-change-in-production"
+      LOG_LEVEL: debug
+    ports:
+      - "9001:9000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - astra-network
+    volumes:
+      - ./backend/auth-service:/app
+    command: go run main.go
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Routing Engine
+  routing-engine:
+    build:
+      context: ./backend/routing-engine
+      dockerfile: Dockerfile
+    container_name: astra-routing-engine
+    environment:
+      PORT: 9000
+      DATABASE_URL: "postgresql://astra:astra_dev_password@postgres:5432/astra"
+      REDIS_URL: "redis://redis:6379"
+      LOG_LEVEL: debug
+    ports:
+      - "9002:9000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - astra-network
+    volumes:
+      - ./backend/routing-engine:/app
+    command: go run main.go
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Governance Engine
+  governance-engine:
+    build:
+      context: ./backend/governance-engine
+      dockerfile: Dockerfile
+    container_name: astra-governance-engine
+    environment:
+      PORT: 9000
+      DATABASE_URL: "postgresql://astra:astra_dev_password@postgres:5432/astra"
+      LOG_LEVEL: debug
+    ports:
+      - "9003:9000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - astra-network
+    volumes:
+      - ./backend/governance-engine:/app
+    command: go run main.go
+
+  # Observability Service
+  observability-service:
+    build:
+      context: ./backend/observability-service
+      dockerfile: Dockerfile
+    container_name: astra-observability-service
+    environment:
+      PORT: 9000
+      KAFKA_BROKERS: "kafka:29092"
+      CLICKHOUSE_URL: "clickhouse://astra:astra_dev_password@clickhouse:9000/astra"
+      LOG_LEVEL: debug
+    ports:
+      - "9004:9000"
+    depends_on:
+      kafka:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+    networks:
+      - astra-network
+    volumes:
+      - ./backend/observability-service:/app
+    command: go run main.go
+
+  # Frontend (Next.js)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: astra-frontend
+    environment:
+      NEXT_PUBLIC_API_URL: "http://localhost:8080"
+      NEXT_PUBLIC_GRAFANA_URL: "http://localhost:3000"
+    ports:
+      - "3000:3000"
+    depends_on:
+      - gateway-service
+    networks:
+      - astra-network
+    volumes:
+      - ./frontend:/app
+    command: npm run dev
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  clickhouse_data:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+  loki_data:
+    driver: local
+
+networks:
+  astra-network:
+    driver: bridge
+
+# Usage:
+# 1. Set environment variables
+#    export OPENAI_API_KEY="sk-..."
+#    export ANTHROPIC_API_KEY="sk-ant-..."
+#
+# 2. Start all services
+#    docker-compose up -d
+#
+# 3. Access services
+#    - Gateway API: http://localhost:8080
+#    - Frontend: http://localhost:3000
+#    - Grafana: http://localhost:3000 (admin/admin)
+#    - Prometheus: http://localhost:9090
+#    - Jaeger: http://localhost:16686
+#    - ClickHouse: http://localhost:8123
+#
+# 4. Stop services
+#    docker-compose down
+#
+# 5. View logs
+#    docker-compose logs -f gateway-service
+#    docker-compose logs -f auth-service
+#
+# 6. Execute commands in container
+#    docker-compose exec postgres psql -U astra -d astra
+#    docker-compose exec redis redis-cli

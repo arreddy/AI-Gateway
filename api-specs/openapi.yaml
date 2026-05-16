@@ -1,0 +1,1037 @@
+openapi: 3.0.3
+info:
+  title: Astra Gateway API
+  version: 1.0.0
+  description: |
+    Enterprise AI Gateway Platform - OpenAI-compatible API for unified access to 50+ LLM providers.
+    
+    This API provides:
+    - Multi-provider LLM access (OpenAI, Anthropic, Google, Mistral, etc.)
+    - Intelligent routing with cost/latency optimization
+    - Governance and compliance features
+    - Comprehensive observability
+    - Token-level rate limiting
+    - Request/response caching
+    - Fallback chains and circuit breakers
+  contact:
+    name: Astra Gateway Support
+    url: https://docs.astragateway.io
+    email: support@astragateway.io
+  license:
+    name: Proprietary
+    url: https://astragateway.io/license
+
+servers:
+  - url: https://api.astragateway.io/v1
+    description: Production
+  - url: https://staging.astragateway.io/v1
+    description: Staging
+  - url: http://localhost:8080/v1
+    description: Local Development
+
+security:
+  - BearerAuth: []
+  - ApiKeyAuth: []
+
+tags:
+  - name: Completions
+    description: Chat and text completion endpoints
+  - name: Models
+    description: List and retrieve available models
+  - name: Embeddings
+    description: Embeddings and semantic search
+  - name: Admin
+    description: Administration and configuration
+  - name: Monitoring
+    description: Usage and observability
+  - name: Health
+    description: Service health and status
+
+paths:
+  /chat/completions:
+    post:
+      tags:
+        - Completions
+      summary: Create a chat completion
+      description: |
+        Creates a model response for a given chat conversation.
+        Supports streaming for real-time responses.
+        
+        **Features:**
+        - Multiple provider support
+        - Automatic fallback on provider failure
+        - Token usage tracking
+        - Request caching
+        - Governance policy enforcement
+      operationId: createChatCompletion
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatCompletionRequest'
+            examples:
+              simple:
+                summary: Simple chat completion
+                value:
+                  model: gpt-4
+                  messages:
+                    - role: user
+                      content: What is the capital of France?
+              streaming:
+                summary: Streaming completion
+                value:
+                  model: gpt-4
+                  messages:
+                    - role: user
+                      content: Write a poem about AI
+                  stream: true
+              with_routing:
+                summary: With routing hints
+                value:
+                  model: gpt-4
+                  messages:
+                    - role: user
+                      content: Analyze this data
+                  routing:
+                    strategy: cost
+                    max_latency_ms: 5000
+      responses:
+        '200':
+          description: Chat completion created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatCompletionResponse'
+            text/event-stream:
+              schema:
+                $ref: '#/components/schemas/ChatCompletionStreamResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /completions:
+    post:
+      tags:
+        - Completions
+      summary: Create a text completion
+      description: Creates a completion for the provided prompt.
+      operationId: createCompletion
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CompletionRequest'
+      responses:
+        '200':
+          description: Completion created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompletionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /embeddings:
+    post:
+      tags:
+        - Embeddings
+      summary: Create embeddings
+      description: Creates embedding vectors for input text.
+      operationId: createEmbeddings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmbeddingRequest'
+      responses:
+        '200':
+          description: Embeddings created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmbeddingResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /models:
+    get:
+      tags:
+        - Models
+      summary: List available models
+      description: Lists all available models with their configurations and pricing.
+      operationId: listModels
+      parameters:
+        - name: status
+          in: query
+          description: Filter by model status
+          schema:
+            type: string
+            enum: [available, beta, deprecated, unavailable]
+        - name: provider
+          in: query
+          description: Filter by provider
+          schema:
+            type: string
+            example: openai
+        - name: capability
+          in: query
+          description: Filter by capability
+          schema:
+            type: string
+            enum: [vision, function_calling, streaming, embeddings]
+      responses:
+        '200':
+          description: List of available models
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelListResponse'
+
+  /models/{model_id}:
+    get:
+      tags:
+        - Models
+      summary: Get model details
+      operationId: getModel
+      parameters:
+        - name: model_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Model details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Model'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /admin/api-keys:
+    get:
+      tags:
+        - Admin
+      summary: List API keys
+      operationId: listApiKeys
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, rotated, revoked, expired]
+      responses:
+        '200':
+          description: List of API keys
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ApiKeyResponse'
+
+    post:
+      tags:
+        - Admin
+      summary: Create API key
+      operationId: createApiKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateApiKeyRequest'
+      responses:
+        '201':
+          description: API key created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiKeyCreatedResponse'
+
+  /admin/api-keys/{key_id}:
+    delete:
+      tags:
+        - Admin
+      summary: Revoke API key
+      operationId: revokeApiKey
+      parameters:
+        - name: key_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: API key revoked
+
+  /admin/usage:
+    get:
+      tags:
+        - Monitoring
+      summary: Get usage metrics
+      operationId: getUsageMetrics
+      parameters:
+        - name: period
+          in: query
+          description: Time period for metrics
+          schema:
+            type: string
+            enum: [hour, day, week, month]
+            default: day
+        - name: start_date
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: end_date
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: Usage metrics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsageMetrics'
+
+  /admin/policies:
+    get:
+      tags:
+        - Admin
+      summary: List governance policies
+      operationId: listPolicies
+      responses:
+        '200':
+          description: List of policies
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/GovernancePolicy'
+
+    post:
+      tags:
+        - Admin
+      summary: Create governance policy
+      operationId: createPolicy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateGovernancePolicyRequest'
+      responses:
+        '201':
+          description: Policy created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GovernancePolicy'
+
+  /admin/routing-policies:
+    get:
+      tags:
+        - Admin
+      summary: List routing policies
+      operationId: listRoutingPolicies
+      responses:
+        '200':
+          description: List of routing policies
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/RoutingPolicy'
+
+    post:
+      tags:
+        - Admin
+      summary: Create routing policy
+      operationId: createRoutingPolicy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateRoutingPolicyRequest'
+      responses:
+        '201':
+          description: Routing policy created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoutingPolicy'
+
+  /health:
+    get:
+      tags:
+        - Health
+      summary: Service health check
+      operationId: healthCheck
+      security: []
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [healthy, degraded, unhealthy]
+                  timestamp:
+                    type: string
+                    format: date-time
+                  providers:
+                    type: object
+                    additionalProperties:
+                      type: object
+                      properties:
+                        status:
+                          type: string
+                        latency_ms:
+                          type: integer
+
+  /health/ready:
+    get:
+      tags:
+        - Health
+      summary: Readiness check
+      operationId: readinessCheck
+      security: []
+      responses:
+        '200':
+          description: Service is ready
+        '503':
+          description: Service is not ready
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token for OAuth2/OIDC flows
+
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: Authorization
+      description: |
+        API key for authentication. Format: `Bearer sk_prod_xxxxx` or `Bearer sk_test_xxxxx`
+
+  schemas:
+    ChatCompletionRequest:
+      type: object
+      required:
+        - model
+        - messages
+      properties:
+        model:
+          type: string
+          description: Model ID (e.g., 'gpt-4', 'claude-3-opus', 'mistral-large')
+          example: gpt-4
+
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChatMessage'
+          description: Messages in the conversation
+
+        temperature:
+          type: number
+          minimum: 0
+          maximum: 2
+          default: 1
+          description: Sampling temperature (0-2)
+
+        top_p:
+          type: number
+          minimum: 0
+          maximum: 1
+          default: 1
+          description: Nucleus sampling parameter
+
+        max_tokens:
+          type: integer
+          minimum: 1
+          description: Maximum tokens in response
+
+        stop:
+          oneOf:
+            - type: string
+            - type: array
+              items:
+                type: string
+          description: Stop sequences
+
+        stream:
+          type: boolean
+          default: false
+          description: Enable streaming responses
+
+        seed:
+          type: integer
+          description: Random seed for reproducibility
+
+        tools:
+          type: array
+          items:
+            $ref: '#/components/schemas/Tool'
+          description: Function definitions for function calling
+
+        tool_choice:
+          oneOf:
+            - type: string
+              enum: [none, auto, required]
+            - type: object
+          description: How to handle tool calls
+
+        # Astra-specific extensions
+        routing:
+          $ref: '#/components/schemas/RoutingHint'
+          description: Routing configuration for this request
+
+        governance_override:
+          type: object
+          description: Override governance policies for this request
+
+        cache_control:
+          type: object
+          properties:
+            type:
+              type: string
+              enum: [ephemeral, standard]
+            ttl_seconds:
+              type: integer
+          description: Cache control settings
+
+        trace_id:
+          type: string
+          format: uuid
+          description: Request trace ID for correlation
+
+    ChatMessage:
+      type: object
+      required:
+        - role
+        - content
+      properties:
+        role:
+          type: string
+          enum: [user, assistant, system, tool]
+        content:
+          oneOf:
+            - type: string
+            - type: array
+              items:
+                type: object
+
+    ChatCompletionResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Completion ID
+        object:
+          type: string
+          enum: [chat.completion]
+        created:
+          type: integer
+          description: Unix timestamp
+        model:
+          type: string
+        choices:
+          type: array
+          items:
+            type: object
+            properties:
+              index:
+                type: integer
+              message:
+                $ref: '#/components/schemas/ChatMessage'
+              finish_reason:
+                type: string
+        usage:
+          $ref: '#/components/schemas/TokenUsage'
+        # Astra extensions
+        _astra:
+          type: object
+          properties:
+            request_id:
+              type: string
+              format: uuid
+            provider:
+              type: string
+            latency_ms:
+              type: integer
+            cached:
+              type: boolean
+            cost:
+              type: number
+            fallback_count:
+              type: integer
+
+    ChatCompletionStreamResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        object:
+          type: string
+          enum: [chat.completion.chunk]
+        created:
+          type: integer
+        model:
+          type: string
+        choices:
+          type: array
+          items:
+            type: object
+            properties:
+              index:
+                type: integer
+              delta:
+                type: object
+              finish_reason:
+                type: string
+                nullable: true
+
+    CompletionRequest:
+      type: object
+      required:
+        - model
+        - prompt
+      properties:
+        model:
+          type: string
+        prompt:
+          oneOf:
+            - type: string
+            - type: array
+        temperature:
+          type: number
+          default: 1
+        max_tokens:
+          type: integer
+        top_p:
+          type: number
+        stream:
+          type: boolean
+
+    CompletionResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        object:
+          type: string
+          enum: [text_completion]
+        created:
+          type: integer
+        model:
+          type: string
+        choices:
+          type: array
+          items:
+            type: object
+        usage:
+          $ref: '#/components/schemas/TokenUsage'
+
+    EmbeddingRequest:
+      type: object
+      required:
+        - model
+        - input
+      properties:
+        model:
+          type: string
+        input:
+          oneOf:
+            - type: string
+            - type: array
+              items:
+                type: string
+
+    EmbeddingResponse:
+      type: object
+      properties:
+        object:
+          type: string
+          enum: [list]
+        data:
+          type: array
+          items:
+            type: object
+            properties:
+              object:
+                type: string
+              embedding:
+                type: array
+                items:
+                  type: number
+              index:
+                type: integer
+        model:
+          type: string
+        usage:
+          $ref: '#/components/schemas/TokenUsage'
+
+    TokenUsage:
+      type: object
+      properties:
+        prompt_tokens:
+          type: integer
+        completion_tokens:
+          type: integer
+        total_tokens:
+          type: integer
+        cost_usd:
+          type: number
+          description: Astra extension - actual cost for this request
+
+    Tool:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [function]
+        function:
+          type: object
+          properties:
+            name:
+              type: string
+            description:
+              type: string
+            parameters:
+              type: object
+
+    Model:
+      type: object
+      properties:
+        id:
+          type: string
+          example: gpt-4-turbo
+        object:
+          type: string
+          enum: [model]
+        owned_by:
+          type: string
+        created:
+          type: integer
+        permission:
+          type: array
+        root:
+          type: string
+        parent:
+          type: string
+        # Astra extensions
+        _astra:
+          type: object
+          properties:
+            provider:
+              type: string
+            status:
+              type: string
+            context_window:
+              type: integer
+            capabilities:
+              type: array
+              items:
+                type: string
+            pricing:
+              type: object
+              properties:
+                input_per_mtok:
+                  type: number
+                output_per_mtok:
+                  type: number
+
+    ModelListResponse:
+      type: object
+      properties:
+        object:
+          type: string
+          enum: [list]
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Model'
+
+    ApiKeyResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        external_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        key_preview:
+          type: string
+        status:
+          type: string
+          enum: [active, rotated, revoked, expired]
+        permissions:
+          type: array
+          items:
+            type: string
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+
+    ApiKeyCreatedResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        key:
+          type: string
+          description: Actual API key (returned only once)
+        created_at:
+          type: string
+          format: date-time
+
+    CreateApiKeyRequest:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          maxLength: 255
+        permissions:
+          type: array
+          items:
+            type: string
+        allowed_models:
+          type: array
+          items:
+            type: string
+        allowed_ip_addresses:
+          type: array
+          items:
+            type: string
+        expires_in_days:
+          type: integer
+
+    RoutingHint:
+      type: object
+      properties:
+        strategy:
+          type: string
+          enum: [cost, latency, quality, rule_based, adaptive]
+        constraints:
+          type: object
+          properties:
+            max_cost_per_request:
+              type: number
+            max_latency_ms:
+              type: integer
+            min_success_rate:
+              type: number
+        preferred_providers:
+          type: array
+          items:
+            type: string
+        model_mappings:
+          type: object
+          additionalProperties:
+            type: string
+
+    RoutingPolicy:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        strategy:
+          type: string
+        priority:
+          type: integer
+        rules:
+          type: object
+        fallback_chain:
+          type: array
+        constraints:
+          type: object
+        is_active:
+          type: boolean
+
+    CreateRoutingPolicyRequest:
+      type: object
+      required:
+        - name
+        - strategy
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        strategy:
+          type: string
+        priority:
+          type: integer
+        rules:
+          type: object
+        fallback_chain:
+          type: array
+          items:
+            type: string
+
+    GovernancePolicy:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        policy_type:
+          type: string
+        config:
+          type: object
+        action:
+          type: string
+        is_enabled:
+          type: boolean
+
+    CreateGovernancePolicyRequest:
+      type: object
+      required:
+        - name
+        - policy_type
+      properties:
+        name:
+          type: string
+        policy_type:
+          type: string
+          enum: [pii_redaction, toxicity_filter, injection_detect, custom]
+        config:
+          type: object
+        action:
+          type: string
+          enum: [allow, block, redact, warn, quarantine]
+
+    UsageMetrics:
+      type: object
+      properties:
+        period:
+          type: object
+          properties:
+            start_date:
+              type: string
+              format: date
+            end_date:
+              type: string
+              format: date
+        summary:
+          type: object
+          properties:
+            total_requests:
+              type: integer
+            total_tokens:
+              type: integer
+            total_cost:
+              type: number
+            avg_latency_ms:
+              type: number
+            error_rate:
+              type: number
+        by_model:
+          type: object
+          additionalProperties:
+            type: object
+        by_provider:
+          type: object
+          additionalProperties:
+            type: object
+
+  responses:
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+    Unauthorized:
+      description: Unauthorized
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+    RateLimited:
+      description: Rate limited
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+    ServerError:
+      description: Server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+  schemas:
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            message:
+              type: string
+            code:
+              type: string
+            type:
+              type: string
+            param:
+              type: string
+              nullable: true
+            status:
+              type: integer
