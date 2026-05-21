@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Astra Gateway - Documentation</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header>
+        <nav>
+            <a href="index.html" class="logo">
+                <span>📚</span> Astra Gateway Docs
+            </a>
+            <ul class="nav-links">
+                <li><a href="index.html" class="active">Home</a></li>
+                <li><a href="executive-summary.html">Executive Summary</a></li>
+                <li><a href="architecture.html">Architecture</a></li>
+                <li><a href="implementation-guide.html">Implementation</a></li>
+                <li><a href="deployment.html">Deployment</a></li>
+                <li><a href="security.html">Security</a></li>
+                <li><a href="roadmap.html">Roadmap</a></li>
+            </ul>
+        </nav>
+    </header>
+
+    <main>
+        <div class="hero">
+            <h1>Astra Gateway Documentation</h1>
+            <p>Enterprise-grade AI Gateway Platform for managing multiple LLM providers with intelligent routing, governance, and observability</p>
+        </div>
+
+        <div class="card-grid">
+            <a href="executive-summary.html" class="card">
+                <h3>📊 Executive Summary</h3>
+                <p>High-level overview of Astra Gateway, key differentiators, market opportunity, and core capabilities.</p>
+            </a>
+            <a href="architecture.html" class="card">
+                <h3>🏗️ System Architecture</h3>
+                <p>Detailed C4 model architecture, microservices design, technology stack, and system components.</p>
+            </a>
+            <a href="implementation-guide.html" class="card">
+                <h3>⚡ Implementation Guide</h3>
+                <p>Quick start guide, request flow architecture, API design, and development setup instructions.</p>
+            </a>
+        </div>
+
+        <div class="card-grid">
+            <a href="deployment.html" class="card">
+                <h3>🚀 Deployment Guide</h3>
+                <p>Kubernetes deployment architecture, prerequisites, Helm configuration, and cloud setup steps.</p>
+            </a>
+            <a href="security.html" class="card">
+                <h3>🔒 Security Architecture</h3>
+                <p>Zero-trust security model, encryption, governance, compliance, and audit logging.</p>
+            </a>
+            <a href="roadmap.html" class="card">
+                <h3>📋 Production Checklist</h3>
+                <p>Complete production readiness checklist and roadmap for enterprise deployment.</p>
+            </a>
+        </div>
+
+        <section class="content" style="margin-top: 40px;">
+            <h2>Getting Started</h2>
+            <p>Welcome to the Astra Gateway documentation. This comprehensive guide covers all aspects of deploying and using the platform.</p>
+
+            <h3>What is Astra Gateway?</h3>
+            <p>Astra Gateway is an enterprise-grade AI Gateway Platform that acts as a unified control plane and proxy for all AI model traffic across organizations. It abstracts away the complexity of managing multiple LLM providers (OpenAI, Anthropic, Google, Mistral, xAI, and 45+ more) and provides:</p>
+
+            <ul>
+                <li><strong>Intelligent Routing:</strong> Cost-optimized, latency-optimized, or quality-optimized routing with ML-based adaptation</li>
+                <li><strong>Enterprise Governance:</strong> PII detection, prompt injection detection, toxicity filtering, and custom policies</li>
+                <li><strong>Complete Observability:</strong> Real-time dashboards, metrics, distributed tracing, and cost analytics</li>
+                <li><strong>Multi-Provider Support:</strong> 50+ LLM providers with OpenAI-compatible API</li>
+                <li><strong>Production-Ready:</strong> 99.99% uptime SLA with enterprise architecture</li>
+            </ul>
+
+            <h3>Documentation Structure</h3>
+            <ul>
+                <li><strong>Executive Summary:</strong> Start here for business overview and competitive positioning</li>
+                <li><strong>Architecture:</strong> Deep dive into system design using C4 model and microservices</li>
+                <li><strong>Implementation Guide:</strong> Technical guide for developers implementing the platform</li>
+                <li><strong>Deployment:</strong> Step-by-step Kubernetes and cloud deployment instructions</li>
+                <li><strong>Security:</strong> Comprehensive security architecture and compliance guide</li>
+                <li><strong>Production Checklist:</strong> Pre-deployment validation and production readiness</li>
+            </ul>
+
+            <h3>Quick Links</h3>
+            <ul>
+                <li>GitHub: <a href="https://github.com/astra-gateway/astra-gateway">astra-gateway/astra-gateway</a></li>
+                <li>Docker Registry: <a href="https://hub.docker.com">hub.docker.com</a></li>
+                <li>API Documentation: <a href="../api-specs/openapi.yaml">OpenAPI Specification</a></li>
+            </ul>
+
+            <h2>Key Features at a Glance</h2>
+
+            <h3>Multi-Provider LLM Gateway</h3>
+            <p>Integrated support for 50+ LLM providers including OpenAI, Anthropic, Google Gemini, Meta Llama, Mistral AI, xAI, Groq, Together AI, and local OSS models. OpenAI-compatible API allows drop-in replacement for existing OpenAI clients.</p>
+
+            <h3>Intelligent Routing Engine</h3>
+            <p>Advanced routing capabilities include:</p>
+            <ul>
+                <li>Cost-optimized routing (minimize token costs)</li>
+                <li>Latency-optimized routing (minimize response time)</li>
+                <li>Quality-optimized routing (use best models for task)</li>
+                <li>Geo-aware routing (based on data residency)</li>
+                <li>Adaptive routing (ML learns from historical metrics)</li>
+                <li>Rule-based DSL (custom routing logic)</li>
+                <li>A/B testing and canary deployments</li>
+            </ul>
+
+            <h3>Enterprise Governance</h3>
+            <p>Comprehensive policy framework including:</p>
+            <ul>
+                <li>PII detection (SSN, credit cards, emails)</li>
+                <li>Prompt injection detection</li>
+                <li>Toxicity filtering</li>
+                <li>Custom policies</li>
+                <li>Audit trails</li>
+                <li>RBAC/ABAC access control</li>
+                <li>Data residency enforcement</li>
+            </ul>
+
+            <h3>Complete Observability</h3>
+            <p>Full monitoring stack with:</p>
+            <ul>
+                <li>Real-time Grafana dashboards</li>
+                <li>Prometheus metrics collection</li>
+                <li>Jaeger/Tempo distributed tracing</li>
+                <li>ELK/Loki log aggregation</li>
+                <li>Cost analytics and breakdown</li>
+                <li>Error analytics and root cause analysis</li>
+                <li>Model performance benchmarking</li>
+            </ul>
+
+            <h2>Technology Stack</h2>
+            <ul>
+                <li><strong>Backend:</strong> Go (performance) + gRPC</li>
+                <li><strong>Frontend:</strong> Next.js + React + Tailwind</li>
+                <li><strong>Databases:</strong> PostgreSQL (operational) + ClickHouse (analytics)</li>
+                <li><strong>Caching:</strong> Redis</li>
+                <li><strong>Message Queue:</strong> Kafka</li>
+                <li><strong>Orchestration:</strong> Kubernetes</li>
+                <li><strong>Service Mesh:</strong> Istio (optional)</li>
+                <li><strong>Observability:</strong> Prometheus, Grafana, Jaeger, ELK</li>
+            </ul>
+
+            <h2>Next Steps</h2>
+            <ol>
+                <li>Read the <a href="executive-summary.html">Executive Summary</a> to understand the platform overview</li>
+                <li>Review the <a href="architecture.html">System Architecture</a> for technical design details</li>
+                <li>Follow the <a href="implementation-guide.html">Implementation Guide</a> for setup instructions</li>
+                <li>Use the <a href="deployment.html">Deployment Guide</a> for production deployment</li>
+                <li>Review <a href="security.html">Security Architecture</a> for compliance requirements</li>
+                <li>Consult the <a href="roadmap.html">Production Checklist</a> before going live</li>
+            </ol>
+
+            <div class="alert alert-info">
+                <strong>💡 Tip:</strong> For detailed information on specific topics, use the navigation menu at the top. Each documentation page contains a table of contents for easy navigation.
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <div class="footer-content">
+            <div class="footer-section">
+                <h4>Documentation</h4>
+                <a href="index.html">Home</a>
+                <a href="executive-summary.html">Executive Summary</a>
+                <a href="architecture.html">Architecture</a>
+                <a href="implementation-guide.html">Implementation</a>
+                <a href="deployment.html">Deployment</a>
+            </div>
+            <div class="footer-section">
+                <h4>Resources</h4>
+                <a href="security.html">Security Guide</a>
+                <a href="roadmap.html">Production Checklist</a>
+                <a href="#">API Docs</a>
+                <a href="#">Status Page</a>
+            </div>
+            <div class="footer-section">
+                <h4>Community</h4>
+                <a href="#">GitHub</a>
+                <a href="#">Issues</a>
+                <a href="#">Discussions</a>
+                <a href="#">Contributing</a>
+            </div>
+            <div class="footer-section">
+                <h4>Company</h4>
+                <a href="#">About</a>
+                <a href="#">Blog</a>
+                <a href="#">Contact</a>
+                <a href="#">Privacy</a>
+            </div>
+        </div>
+        <div style="text-align: center; margin-top: 40px; padding-top: 20px; border-top: 1px solid rgba(255,255,255,0.1); color: #94a3b8;">
+            <p>&copy; 2024 Astra Gateway. All rights reserved. | Generated: May 20, 2026</p>
+        </div>
+    </footer>
+</body>
+</html>

@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Implementation Guide - Astra Gateway Documentation</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header>
+        <nav>
+            <a href="index.html" class="logo">
+                <span>📚</span> Astra Gateway Docs
+            </a>
+            <ul class="nav-links">
+                <li><a href="index.html">Home</a></li>
+                <li><a href="executive-summary.html">Executive Summary</a></li>
+                <li><a href="architecture.html">Architecture</a></li>
+                <li><a href="implementation-guide.html" class="active">Implementation</a></li>
+                <li><a href="deployment.html">Deployment</a></li>
+                <li><a href="security.html">Security</a></li>
+                <li><a href="roadmap.html">Roadmap</a></li>
+            </ul>
+        </nav>
+    </header>
+
+    <main>
+        <div class="container">
+            <aside class="sidebar">
+                <h3>📑 Contents</h3>
+                <ul>
+                    <li><a href="#quick-start">Quick Start</a></li>
+                    <li><a href="#architecture">Architecture</a></li>
+                    <li><a href="#components">Core Components</a></li>
+                    <li><a href="#database">Database Schema</a></li>
+                    <li><a href="#api-examples">API Examples</a></li>
+                    <li><a href="#testing">Testing</a></li>
+                    <li><a href="#debugging">Debugging</a></li>
+                    <li><a href="#deployment">Deployment</a></li>
+                </ul>
+            </aside>
+
+            <section class="content">
+                <h1>Implementation Guide: Building Astra Gateway</h1>
+
+                <h2 id="quick-start">Quick Start (5 minutes)</h2>
+                <pre><code># 1. Clone and setup
+git clone https://github.com/astra-gateway/astra-gateway.git
+cd astra-gateway
+
+# 2. Start local environment
+docker-compose -f docker-compose.dev.yaml up -d
+
+# 3. Create database schema
+docker-compose exec postgres psql -U astra -d astra \
+  -f /docker-entrypoint-initdb.d/01-schema.sql
+
+# 4. Test gateway
+curl http://localhost:8080/health
+
+# 5. Access dashboards
+# Frontend: http://localhost:3000
+# Grafana: http://localhost:3000 (admin/admin)
+# Jaeger: http://localhost:16686</code></pre>
+
+                <h2 id="architecture">Request Flow Architecture</h2>
+                <pre><code>Client Request
+  ↓
+[API Gateway (Envoy)]
+  ├─ TLS termination
+  ├─ Rate limiting (DDoS)
+  └─ Load balancing
+  ↓
+[Gateway Service - Go]
+  ├─ Request validation
+  ├─ Auth verification
+  ├─ Cache lookup (Redis)
+  ├─ Routing decision
+  ├─ Governance pre-checks
+  ├─ Provider call
+  ├─ Governance post-checks
+  ├─ Metrics recording
+  └─ Billing recording
+  ↓
+[Response to Client]
+  ├─ Streaming (SSE/WebSocket)
+  ├─ Metrics
+  └─ Astra metadata</code></pre>
+
+                <h2 id="components">Core Components</h2>
+
+                <h3>1. Gateway Service (Port 8080)</h3>
+                <p><strong>Purpose:</strong> Main API entry point<br>
+                <strong>Language:</strong> Go</p>
+                <ul>
+                    <li>OpenAI-compatible API endpoints</li>
+                    <li>Request validation</li>
+                    <li>Authentication delegation</li>
+                    <li>Load balancing across providers</li>
+                    <li>Streaming coordination</li>
+                    <li>Response composition</li>
+                </ul>
+
+                <h3>2. Auth Service (Port 9000)</h3>
+                <p><strong>Purpose:</strong> API key and JWT verification</p>
+                <ul>
+                    <li>API key validation (SHA-256 hashing)</li>
+                    <li>JWT verification (RS256)</li>
+                    <li>Permission checking</li>
+                    <li>Claims caching (5 minute TTL)</li>
+                </ul>
+
+                <h3>3. Routing Engine (Port 9000)</h3>
+                <p><strong>Purpose:</strong> Intelligent provider selection</p>
+                <ul>
+                    <li>Cost-optimized routing</li>
+                    <li>Latency-optimized routing</li>
+                    <li>Quality-optimized routing</li>
+                    <li>Fallback chain management</li>
+                </ul>
+
+                <h3>4. Governance Engine (Port 9000)</h3>
+                <p><strong>Purpose:</strong> Policy enforcement and security</p>
+                <ul>
+                    <li>PII detection and redaction</li>
+                    <li>Prompt injection detection</li>
+                    <li>Toxicity filtering</li>
+                    <li>Custom policy enforcement</li>
+                </ul>
+
+                <h3>5. Observability Service (Port 9000)</h3>
+                <p><strong>Purpose:</strong> Metrics, logging, and tracing</p>
+                <ul>
+                    <li>Prometheus metrics collection</li>
+                    <li>Event publishing (Kafka)</li>
+                    <li>Analytics (ClickHouse)</li>
+                    <li>Tracing (OpenTelemetry)</li>
+                </ul>
+
+                <h2 id="database">Database Schema</h2>
+
+                <h3>Key Tables</h3>
+
+                <h4>tenants - Multi-tenant isolation</h4>
+                <pre><code>CREATE TABLE tenants (
+    id BIGSERIAL PRIMARY KEY,
+    external_id UUID UNIQUE,
+    name VARCHAR(255),
+    tier VARCHAR(50),  -- 'free', 'starter', 'pro', 'enterprise'
+    rate_limit_rpm INT,
+    rate_limit_tpm INT,
+    created_at TIMESTAMP
+);</code></pre>
+
+                <h4>api_keys - Authentication</h4>
+                <pre><code>CREATE TABLE api_keys (
+    id BIGSERIAL PRIMARY KEY,
+    tenant_id BIGINT REFERENCES tenants,
+    key_hash VARCHAR(255) UNIQUE,  -- Never plaintext
+    status VARCHAR(50),
+    permissions TEXT[],
+    created_at TIMESTAMP,
+    expires_at TIMESTAMP
+);</code></pre>
+
+                <h4>request_logs - Immutable event log</h4>
+                <pre><code>CREATE TABLE request_logs (
+    id BIGSERIAL PRIMARY KEY,
+    tenant_id BIGINT REFERENCES tenants,
+    api_key_id BIGINT REFERENCES api_keys,
+    request_id UUID UNIQUE,
+    model_requested VARCHAR(255),
+    model_used VARCHAR(255),
+    provider_id BIGINT,
+    input_tokens INT,
+    output_tokens INT,
+    total_cost DECIMAL(15,8),
+    latency_ms INT,
+    status VARCHAR(50),
+    created_at TIMESTAMP
+);</code></pre>
+
+                <h2 id="api-examples">API Examples</h2>
+
+                <h3>Example 1: Simple Chat Completion</h3>
+                <pre><code>curl -X POST http://localhost:8080/v1/chat/completions \
+  -H "Authorization: Bearer sk_prod_xxxxx" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-4",
+    "messages": [
+      {"role": "user", "content": "What is AI?"}
+    ]
+  }'</code></pre>
+
+                <h3>Response</h3>
+                <pre><code>{
+  "id": "chatcmpl-8Bjk4KzPx",
+  "object": "chat.completion",
+  "created": 1705334400,
+  "model": "gpt-4",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "AI is artificial intelligence..."
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 10,
+    "completion_tokens": 50,
+    "total_tokens": 60,
+    "cost_usd": 0.0018
+  },
+  "_astra": {
+    "request_id": "req_123xyz",
+    "provider": "openai",
+    "latency_ms": 423,
+    "cached": false
+  }
+}</code></pre>
+
+                <h3>Example 2: Streaming Response</h3>
+                <pre><code>curl -X POST http://localhost:8080/v1/chat/completions \
+  -H "Authorization: Bearer sk_prod_xxxxx" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-4",
+    "messages": [{"role": "user", "content": "Write a poem"}],
+    "stream": true
+  }'</code></pre>
+
+                <h3>Example 3: Cost-Optimized Routing</h3>
+                <pre><code>curl -X POST http://localhost:8080/v1/chat/completions \
+  -H "Authorization: Bearer sk_prod_xxxxx" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-4",
+    "messages": [{"role": "user", "content": "Summarize this"}],
+    "routing": {
+      "strategy": "cost",
+      "constraints": {"max_cost_per_request": 0.10}
+    }
+  }'</code></pre>
+
+                <h2 id="testing">Testing</h2>
+
+                <h3>Unit Tests</h3>
+                <pre><code># Test auth service
+go test ./backend/auth-service/... -v
+
+# Test gateway service
+go test ./backend/gateway-service/... -v
+
+# With coverage
+go test ./... -cover</code></pre>
+
+                <h3>Integration Tests</h3>
+                <pre><code># Start test environment
+docker-compose -f docker-compose.test.yaml up -d
+
+# Run integration tests
+go test ./tests/integration/... -v
+
+# Cleanup
+docker-compose down</code></pre>
+
+                <h3>Load Testing (k6)</h3>
+                <pre><code># Install k6
+brew install k6
+
+# Run load test
+k6 run scripts/load-test.js
+
+# Expected results:
+# - 100k RPS capacity
+# - P95 latency < 1000ms
+# - Error rate < 0.1%</code></pre>
+
+                <h2 id="debugging">Debugging</h2>
+
+                <h3>View Logs</h3>
+                <pre><code># Gateway logs
+docker-compose logs -f gateway-service
+
+# All logs
+docker-compose logs -f</code></pre>
+
+                <h3>Access Databases</h3>
+                <pre><code># PostgreSQL
+docker-compose exec postgres psql -U astra -d astra
+
+# Redis CLI
+docker-compose exec redis redis-cli
+
+# ClickHouse
+docker-compose exec clickhouse clickhouse-client</code></pre>
+
+                <h3>Monitoring Dashboards</h3>
+                <ul>
+                    <li><strong>Grafana:</strong> http://localhost:3000 (admin/admin)</li>
+                    <li><strong>Prometheus:</strong> http://localhost:9090</li>
+                    <li><strong>Jaeger:</strong> http://localhost:16686</li>
+                </ul>
+
+                <h3>Profiling</h3>
+                <pre><code># CPU/Memory profiling (pprof)
+# Access at: http://localhost:6060/debug/pprof/
+# Memory: http://localhost:6060/debug/pprof/heap
+# Profile: http://localhost:6060/debug/pprof/profile?seconds=30</code></pre>
+
+                <h2 id="deployment">Deployment</h2>
+
+                <h3>Docker Build</h3>
+                <pre><code># Build gateway service
+docker build -t astra-gateway:latest ./backend/gateway-service
+
+# Tag and push
+docker tag astra-gateway:latest docker.io/astragateway/gateway-service:latest
+docker push docker.io/astragateway/gateway-service:latest</code></pre>
+
+                <h3>Kubernetes Deployment</h3>
+                <pre><code># Deploy core services
+kubectl apply -f infrastructure/k8s/astra-core.yaml
+
+# Deploy auth service
+kubectl apply -f infrastructure/k8s/auth-service.yaml
+
+# Verify
+kubectl get pods -n astra
+kubectl get svc -n astra</code></pre>
+
+                <h3>Helm Charts</h3>
+                <pre><code># Add Astra repo
+helm repo add astra https://helm.astragateway.io
+helm repo update
+
+# Install
+helm install astra-gateway astra/astra-gateway \
+  --namespace astra \
+  --values values-prod.yaml
+
+# Upgrade
+helm upgrade astra-gateway astra/astra-gateway \
+  --namespace astra</code></pre>
+
+                <h2>Implementation Timeline</h2>
+                <ol>
+                    <li><strong>Week 1-2:</strong> Set up infrastructure and databases</li>
+                    <li><strong>Week 3-4:</strong> Implement gateway and auth services</li>
+                    <li><strong>Week 5:</strong> Add provider adapters</li>
+                    <li><strong>Week 6:</strong> Implement governance engine</li>
+                    <li><strong>Week 7:</strong> Add observability</li>
+                    <li><strong>Week 8:</strong> Deploy and test</li>
+                </ol>
+
+                <div class="alert alert-success">
+                    <strong>🚀 Ready to build?</strong> Follow the quick start guide above to get a working local development environment in under 5 minutes!
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <footer>
+        <div class="footer-content">
+            <div class="footer-section">
+                <h4>Documentation</h4>
+                <a href="index.html">Home</a>
+                <a href="executive-summary.html">Executive Summary</a>
+                <a href="architecture.html">Architecture</a>
+                <a href="implementation-guide.html">Implementation</a>
+                <a href="deployment.html">Deployment</a>
+            </div>
+            <div class="footer-section">
+                <h4>Resources</h4>
+                <a href="security.html">Security Guide</a>
+                <a href="roadmap.html">Production Checklist</a>
+                <a href="#">API Docs</a>
+                <a href="#">Status Page</a>
+            </div>
+            <div class="footer-section">
+                <h4>Community</h4>
+                <a href="#">GitHub</a>
+                <a href="#">Issues</a>
+                <a href="#">Discussions</a>
+                <a href="#">Contributing</a>
+            </div>
+            <div class="footer-section">
+                <h4>Company</h4>
+                <a href="#">About</a>
+                <a href="#">Blog</a>
+                <a href="#">Contact</a>
+                <a href="#">Privacy</a>
+            </div>
+        </div>
+        <div style="text-align: center; margin-top: 40px; padding-top: 20px; border-top: 1px solid rgba(255,255,255,0.1); color: #94a3b8;">
+            <p>&copy; 2024 Astra Gateway. All rights reserved. | Generated: May 20, 2026</p>
+        </div>
+    </footer>
+</body>
+</html>

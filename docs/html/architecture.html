@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>System Architecture - Astra Gateway Documentation</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header>
+        <nav>
+            <a href="index.html" class="logo">
+                <span>📚</span> Astra Gateway Docs
+            </a>
+            <ul class="nav-links">
+                <li><a href="index.html">Home</a></li>
+                <li><a href="executive-summary.html">Executive Summary</a></li>
+                <li><a href="architecture.html" class="active">Architecture</a></li>
+                <li><a href="implementation-guide.html">Implementation</a></li>
+                <li><a href="deployment.html">Deployment</a></li>
+                <li><a href="security.html">Security</a></li>
+                <li><a href="roadmap.html">Roadmap</a></li>
+            </ul>
+        </nav>
+    </header>
+
+    <main>
+        <div class="container">
+            <aside class="sidebar">
+                <h3>📑 Contents</h3>
+                <ul>
+                    <li><a href="#overview">Overview</a></li>
+                    <li><a href="#c4-model">C4 Model</a></li>
+                    <li><a href="#components">Components</a></li>
+                    <li><a href="#data-flow">Data Flow</a></li>
+                    <li><a href="#scalability">Scalability</a></li>
+                    <li><a href="#ha-design">High Availability</a></li>
+                    <li><a href="#security">Security</a></li>
+                    <li><a href="#cost">Cost Optimization</a></li>
+                    <li><a href="#examples">Examples</a></li>
+                    <li><a href="#deployment">Deployment</a></li>
+                </ul>
+            </aside>
+
+            <section class="content">
+                <h1>System Architecture</h1>
+
+                <h2 id="overview">Overview</h2>
+                <p>Astra Gateway is a cloud-native microservices platform built for enterprise AI workloads. It provides a unified control plane for LLM traffic management, governance, and observability.</p>
+
+                <h2 id="c4-model">C4 Model Architecture</h2>
+
+                <h3>Level 1: System Context</h3>
+                <p>At the highest level, Astra Gateway acts as a central hub connecting multiple client applications to multiple LLM providers:</p>
+                <ul>
+                    <li><strong>Clients:</strong> Mobile apps, web apps, backend services</li>
+                    <li><strong>Gateway:</strong> Unified API endpoint with OpenAI compatibility</li>
+                    <li><strong>Providers:</strong> OpenAI, Anthropic, Google Gemini, and 50+ others</li>
+                </ul>
+
+                <h3>Level 2: Container Architecture</h3>
+                <p>The platform is organized into logical containers within the Astra Gateway system:</p>
+                <ul>
+                    <li><strong>API Gateway (Envoy Proxy):</strong> Request validation, authentication, rate limiting, streaming coordination, response caching</li>
+                    <li><strong>Control Plane Services:</strong> Auth, Routing, Governance, Observability, Billing</li>
+                    <li><strong>Provider Adapters:</strong> Normalize requests/responses for each provider</li>
+                    <li><strong>Data Layer:</strong> PostgreSQL, Redis, ClickHouse, Kafka</li>
+                </ul>
+
+                <h3>Level 3: Component Breakdown</h3>
+
+                <h4>API Gateway Service</h4>
+                <p>The core request processing pipeline flows through the gateway service with the following stages:</p>
+                <pre><code>Client Request → Envoy Proxy → Gateway Service → Routing Engine 
+→ Provider Adapter → External Provider → Response Processing → Client</code></pre>
+
+                <h4>Authentication Flow</h4>
+                <p>API key validation happens at the API Gateway layer with caching:</p>
+                <ol>
+                    <li>Extract API key from Authorization header</li>
+                    <li>Quick cache lookup (TTL: 5 min)</li>
+                    <li>If cache miss, call Auth Service via gRPC</li>
+                    <li>Verify signature, check expiration, validate permissions</li>
+                    <li>Cache result and return claims object</li>
+                </ol>
+
+                <h4>Routing Decision Engine</h4>
+                <p>Intelligent provider selection based on multiple factors:</p>
+                <ul>
+                    <li><strong>Load Metrics:</strong> Provider latencies, error rates, costs, availability</li>
+                    <li><strong>Routing Policies:</strong> Cost-optimized, latency-optimized, quality-optimized, adaptive</li>
+                    <li><strong>Constraints:</strong> Budget, rate limits, geographic restrictions, data residency</li>
+                    <li><strong>Fallback Chain:</strong> Primary, secondary, and tertiary providers</li>
+                </ul>
+
+                <h4>Governance Pipeline</h4>
+                <p>Policy enforcement at multiple stages:</p>
+                <ol>
+                    <li>PII Detector - Scan for SSN, credit cards, emails</li>
+                    <li>Prompt Injection Detector - Pattern matching and ML-based detection</li>
+                    <li>Toxicity Filter - Content classification and policy enforcement</li>
+                    <li>Custom Policy Engine - DSL evaluation and conditional rules</li>
+                    <li>Audit Logger - Immutable event recording</li>
+                </ol>
+
+                <h2 id="components">Core Components</h2>
+
+                <h3>1. Gateway Service</h3>
+                <p><strong>Purpose:</strong> Main API entry point<br>
+                <strong>Language:</strong> Go<br>
+                <strong>Port:</strong> 8080</p>
+                <ul>
+                    <li>OpenAI-compatible API endpoints</li>
+                    <li>Request validation</li>
+                    <li>Authentication delegation</li>
+                    <li>Load balancing across providers</li>
+                    <li>Streaming coordination</li>
+                    <li>Response composition</li>
+                </ul>
+
+                <h3>2. Auth Service</h3>
+                <p><strong>Purpose:</strong> API key and JWT verification<br>
+                <strong>Language:</strong> Go<br>
+                <strong>Port:</strong> 9000</p>
+                <ul>
+                    <li>API key validation with SHA-256 hashing</li>
+                    <li>JWT verification with RS256 signing</li>
+                    <li>Permission checking</li>
+                    <li>Claims caching (5 minute TTL)</li>
+                </ul>
+
+                <h3>3. Routing Engine</h3>
+                <p><strong>Purpose:</strong> Intelligent provider selection<br>
+                <strong>Language:</strong> Go<br>
+                <strong>Port:</strong> 9000</p>
+                <ul>
+                    <li>Cost-optimized routing</li>
+                    <li>Latency-optimized routing</li>
+                    <li>Quality-optimized routing</li>
+                    <li>Fallback chain management</li>
+                    <li>Load balancing with health checks</li>
+                </ul>
+
+                <h3>4. Governance Engine</h3>
+                <p><strong>Purpose:</strong> Policy enforcement and security<br>
+                <strong>Language:</strong> Go<br>
+                <strong>Port:</strong> 9000</p>
+                <ul>
+                    <li>PII detection and redaction</li>
+                    <li>Prompt injection detection</li>
+                    <li>Toxicity filtering</li>
+                    <li>Custom policy enforcement</li>
+                    <li>Violation logging</li>
+                </ul>
+
+                <h3>5. Observability Service</h3>
+                <p><strong>Purpose:</strong> Metrics, logging, and tracing<br>
+                <strong>Language:</strong> Go<br>
+                <strong>Port:</strong> 9000</p>
+                <ul>
+                    <li>Prometheus metrics collection</li>
+                    <li>Event publishing (Kafka)</li>
+                    <li>Analytics (ClickHouse)</li>
+                    <li>Distributed tracing (OpenTelemetry)</li>
+                </ul>
+
+                <h2 id="data-flow">Data Flow Diagrams</h2>
+
+                <h3>Streaming Response Flow</h3>
+                <pre><code>Client → POST /chat/completions (stream=true)
+    ↓
+Gateway validates, authenticates, checks governance
+    ↓
+Provider Adapter opens streaming connection
+    ↓
+Stream chunks → [Governance Check] → [Token Count] → Client (SSE)
+    ↓
+Observability records aggregated metrics
+Billing records usage event</code></pre>
+
+                <h3>Multi-Tenant Request Isolation</h3>
+                <p>Complete tenant isolation is enforced at every level:</p>
+                <ul>
+                    <li>All queries filtered by tenant_id automatically</li>
+                    <li>Separate rate limit buckets per tenant</li>
+                    <li>Isolated cache keys (includes tenant_id)</li>
+                    <li>Isolated quota tracking</li>
+                    <li><strong>Cross-tenant data leakage: IMPOSSIBLE</strong></li>
+                </ul>
+
+                <h2 id="scalability">Scalability Architecture</h2>
+
+                <h3>Horizontal Scaling</h3>
+                <ul>
+                    <li><strong>API Gateway Layer:</strong> Stateless services enable unlimited horizontal scaling</li>
+                    <li><strong>Routing Engine:</strong> In-memory metrics cache via Redis</li>
+                    <li><strong>Provider Adapters:</strong> Connection pooling and configurable concurrency limits</li>
+                    <li><strong>Data Layer:</strong> PostgreSQL read replicas, connection pooling, sharding by tenant_id</li>
+                </ul>
+
+                <h3>Multi-Region Deployment</h3>
+                <p>Distributed architecture with eventual consistency:</p>
+                <ul>
+                    <li><strong>Global Control Plane:</strong> Single source of truth for config and policies</li>
+                    <li><strong>Regional Deployments:</strong> Gateway, cache, database per region</li>
+                    <li><strong>Cross-Region Sync:</strong> Eventually consistent state</li>
+                    <li><strong>Geo-Routing:</strong> &lt;50ms additional latency per region</li>
+                </ul>
+
+                <h2 id="ha-design">High Availability Design</h2>
+
+                <h3>Service Redundancy</h3>
+                <ul>
+                    <li>Active-Active load balancer</li>
+                    <li>Service Mesh (Istio) for traffic management</li>
+                    <li>3+ replicas minimum per microservice</li>
+                    <li>Pod disruption budgets configured</li>
+                </ul>
+
+                <h3>Database High Availability</h3>
+                <ul>
+                    <li>PostgreSQL primary with WAL and continuous archiving</li>
+                    <li>3 replicas (hot, warm, cold standby)</li>
+                    <li>Automated failover with &lt;30 second RTO</li>
+                    <li>RPO: 0 (streaming replication)</li>
+                </ul>
+
+                <h3>Circuit Breaker Pattern</h3>
+                <p>Automatic provider health tracking prevents cascade failures:</p>
+                <ul>
+                    <li>CLOSED: Healthy, pass-through</li>
+                    <li>OPEN: Unhealthy (&gt;10% errors), route to fallback</li>
+                    <li>HALF-OPEN: Testing recovery with periodic requests</li>
+                </ul>
+
+                <h2 id="security">Security Architecture</h2>
+
+                <h3>Defense in Depth</h3>
+                <ul>
+                    <li><strong>Layer 1 - Network:</strong> WAF, DDoS protection, VPC security, TLS 1.3</li>
+                    <li><strong>Layer 2 - Application:</strong> API key validation, JWT verification, input validation, rate limiting</li>
+                    <li><strong>Layer 3 - Data:</strong> Encryption at rest (AES-256), encryption in transit (TLS 1.3), PII detection, tenant isolation</li>
+                    <li><strong>Layer 4 - Monitoring:</strong> Immutable audit logs, security event monitoring, anomaly detection, compliance tracking</li>
+                </ul>
+
+                <h3>Zero Trust Architecture</h3>
+                <p>Every request is verified at multiple levels:</p>
+                <ol>
+                    <li>Verify identity (API Key, JWT, OAuth2)</li>
+                    <li>Verify device (mTLS certificates)</li>
+                    <li>Verify context (resource, action, data sensitivity)</li>
+                    <li>Make decision (allow, deny, challenge)</li>
+                </ol>
+
+                <h2 id="cost">Cost Optimization Strategy</h2>
+
+                <h3>Token Cost Minimization</h3>
+                <ol>
+                    <li>Check cache for exact match (lexical cache) or similar response (semantic cache)</li>
+                    <li>Select provider based on cost constraints and quality requirements</li>
+                    <li>Batch processing when applicable</li>
+                    <li>Execute request and record actual token usage</li>
+                </ol>
+
+                <h3>Rate-Based Pricing</h3>
+                <p>Cached provider pricing list refreshed hourly:</p>
+                <ul>
+                    <li>OpenAI GPT-4-8K: $0.03/$0.06 per 1K tokens</li>
+                    <li>Claude Opus: $0.015/$0.075 per 1K tokens</li>
+                    <li>Mistral Large: $0.007/$0.021 per 1K tokens</li>
+                    <li>Groq: $0.00 (free tier)</li>
+                </ul>
+
+                <h2 id="examples">Traffic Flow Examples</h2>
+
+                <h3>Example 1: Simple Chat Completion</h3>
+                <div class="alert alert-info">
+                    Request → Validation → Auth Verification → Governance Checks → Provider Selection → API Call → Response Processing → Return 200 OK
+                </div>
+
+                <h3>Example 2: Streaming with Fallback</h3>
+                <div class="alert alert-warning">
+                    Streaming → Provider 1 fails with 429 → Fallback to Provider 2 → Complete successfully → Log fallback event
+                </div>
+
+                <h3>Example 3: Cost-Optimized Routing</h3>
+                <div class="alert alert-success">
+                    Analyze cost per provider → Select Mistral Large ($0.145) over GPT-4 ($0.315) → 54% savings while maintaining acceptable quality
+                </div>
+
+                <h2 id="deployment">Deployment Architecture</h2>
+
+                <h3>Kubernetes Manifest Structure</h3>
+                <pre><code>kubernetes/
+├── namespaces/
+├── core/           (gateway, auth, routing)
+├── infrastructure/ (postgres, redis, kafka)
+├── config/         (configmaps, secrets)
+├── networking/     (services, ingress)
+├── observability/  (prometheus, grafana)
+└── istio/          (virtualservice, gateway)</code></pre>
+
+                <div class="alert alert-success">
+                    <strong>✅ Architecture Summary:</strong> Astra Gateway combines microservices architecture, intelligent routing, comprehensive governance, and multi-region scalability to provide a reliable, secure, and cost-effective AI gateway platform.
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <footer>
+        <div class="footer-content">
+            <div class="footer-section">
+                <h4>Documentation</h4>
+                <a href="index.html">Home</a>
+                <a href="executive-summary.html">Executive Summary</a>
+                <a href="architecture.html">Architecture</a>
+                <a href="implementation-guide.html">Implementation</a>
+                <a href="deployment.html">Deployment</a>
+            </div>
+            <div class="footer-section">
+                <h4>Resources</h4>
+                <a href="security.html">Security Guide</a>
+                <a href="roadmap.html">Production Checklist</a>
+                <a href="#">API Docs</a>
+                <a href="#">Status Page</a>
+            </div>
+            <div class="footer-section">
+                <h4>Community</h4>
+                <a href="#">GitHub</a>
+                <a href="#">Issues</a>
+                <a href="#">Discussions</a>
+                <a href="#">Contributing</a>
+            </div>
+            <div class="footer-section">
+                <h4>Company</h4>
+                <a href="#">About</a>
+                <a href="#">Blog</a>
+                <a href="#">Contact</a>
+                <a href="#">Privacy</a>
+            </div>
+        </div>
+        <div style="text-align: center; margin-top: 40px; padding-top: 20px; border-top: 1px solid rgba(255,255,255,0.1); color: #94a3b8;">
+            <p>&copy; 2024 Astra Gateway. All rights reserved. | Generated: May 20, 2026</p>
+        </div>
+    </footer>
+</body>
+</html>

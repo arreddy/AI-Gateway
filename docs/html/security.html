@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Security Architecture - Astra Gateway Documentation</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header>
+        <nav>
+            <a href="index.html" class="logo">
+                <span>📚</span> Astra Gateway Docs
+            </a>
+            <ul class="nav-links">
+                <li><a href="index.html">Home</a></li>
+                <li><a href="executive-summary.html">Executive Summary</a></li>
+                <li><a href="architecture.html">Architecture</a></li>
+                <li><a href="implementation-guide.html">Implementation</a></li>
+                <li><a href="deployment.html">Deployment</a></li>
+                <li><a href="security.html" class="active">Security</a></li>
+                <li><a href="roadmap.html">Roadmap</a></li>
+            </ul>
+        </nav>
+    </header>
+
+    <main>
+        <div class="container">
+            <aside class="sidebar">
+                <h3>📑 Contents</h3>
+                <ul>
+                    <li><a href="#overview">Overview</a></li>
+                    <li><a href="#network">Network Security</a></li>
+                    <li><a href="#authentication">Authentication</a></li>
+                    <li><a href="#data">Data Security</a></li>
+                    <li><a href="#input-validation">Input Validation</a></li>
+                    <li><a href="#audit">Audit & Compliance</a></li>
+                    <li><a href="#zero-trust">Zero Trust</a></li>
+                    <li><a href="#incident">Incident Response</a></li>
+                    <li><a href="#checklist">Checklist</a></li>
+                </ul>
+            </aside>
+
+            <section class="content">
+                <h1>Security Architecture & Governance</h1>
+
+                <h2 id="overview">Overview</h2>
+                <p>Astra Gateway implements enterprise-grade security with zero-trust architecture, defense-in-depth, and compliance-ready design (SOC2, GDPR, HIPAA).</p>
+
+                <h2 id="network">Network Security</h2>
+
+                <h3>TLS/SSL Encryption</h3>
+                <pre><code>Client ←──TLS 1.3──→ Load Balancer
+                      ↓
+                  Gateway Service
+                      ↓
+                  Internal Services (mTLS)</code></pre>
+
+                <h3>Configuration</h3>
+                <pre><code>tls:
+  min_version: "1.3"
+  cipher_suites:
+    - TLS_AES_256_GCM_SHA384
+    - TLS_CHACHA20_POLY1305_SHA256
+    - TLS_AES_128_GCM_SHA256
+  certificate_provider: "certmanager"</code></pre>
+
+                <h3>DDoS Protection</h3>
+                <ul>
+                    <li>AWS Shield (managed DDoS protection)</li>
+                    <li>Rate limiting at edge (WAF)</li>
+                    <li>Geo-blocking if needed</li>
+                </ul>
+
+                <h3>Network Policies</h3>
+                <pre><code># Only allow traffic from ingress controller to gateway
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: gateway-ingress-only
+spec:
+  podSelector:
+    matchLabels:
+      app: gateway-service
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/name: ingress-nginx</code></pre>
+
+                <h2 id="authentication">Authentication & Authorization</h2>
+
+                <h3>API Key Security</h3>
+                <pre><code># Key format: sk_prod_[32 random bytes]
+# Never stored in plaintext
+# Only SHA-256 hash in database
+# Key rotation policy:
+#   - Issued keys expire after 1 year
+#   - Old key remains valid 30 days during transition</code></pre>
+
+                <h3>JWT Tokens</h3>
+                <pre><code>{
+  "sub": "user_456",
+  "org": "org_123",
+  "iss": "astra-gateway",
+  "aud": "astra-api",
+  "iat": 1705334400,
+  "exp": 1705420800,
+  "permissions": ["completions:create", "models:list"],
+  "rate_limits": { "rpm": 60000 }
+}</code></pre>
+
+                <h3>OAuth2/OIDC</h3>
+                <p>Supported providers:</p>
+                <ul>
+                    <li>Google (oauth2/google)</li>
+                    <li>GitHub (oauth2/github)</li>
+                    <li>Microsoft (oauth2/microsoft)</li>
+                    <li>Custom OIDC provider</li>
+                </ul>
+
+                <h3>RBAC (Role-Based Access Control)</h3>
+                <pre><code>roles:
+  admin:
+    permissions: "*"
+    manage_users: true
+  member:
+    permissions:
+      - completions:create
+      - models:list
+      - usage:read
+  viewer:
+    permissions:
+      - models:list
+      - usage:read</code></pre>
+
+                <h2 id="data">Data Security</h2>
+
+                <h3>Encryption at Rest</h3>
+                <ul>
+                    <li><strong>PostgreSQL:</strong> Transparent Data Encryption (TDE), master key in AWS KMS, quarterly rotation</li>
+                    <li><strong>Redis:</strong> Optional encryption for sensitive data, TTL for cache entries</li>
+                    <li><strong>ClickHouse:</strong> Replication to encrypted replicas, backups encrypted</li>
+                </ul>
+
+                <h3>Data Residency & Compliance</h3>
+                <pre><code># Data residency controls
+residency_controls:
+  us_region:
+    allowed_providers: ["us-east-1", "us-west-2"]
+    prohibited_providers: ["eu-west-1"]
+  
+  eu_region:
+    allowed_providers: ["eu-west-1", "eu-central-1"]
+    prohibited_providers: ["us-east-1"]</code></pre>
+
+                <h3>Multi-Tenancy Isolation</h3>
+                <p>Row-level security enforces tenant isolation:</p>
+                <ul>
+                    <li>Every query automatically filtered by tenant_id</li>
+                    <li>Tenant A cannot see Tenant B's data</li>
+                    <li>Cross-tenant joins impossible</li>
+                    <li>Backups include only single tenant</li>
+                </ul>
+
+                <h2 id="input-validation">Input Validation & Protection</h2>
+
+                <h3>Request Validation</h3>
+                <ol>
+                    <li><strong>Schema validation:</strong> Check required fields, validate types, verify ranges, limit request size (50MB)</li>
+                    <li><strong>Content validation:</strong> JSON format, message length, model names, parameter ranges</li>
+                    <li><strong>Business logic validation:</strong> API key active, quota available, provider configured</li>
+                </ol>
+
+                <h3>Injection Detection</h3>
+                <ul>
+                    <li><strong>Prompt Injection:</strong> Pattern matching + ML model detection</li>
+                    <li><strong>Command Injection:</strong> Safe APIs only, no shell execution</li>
+                    <li><strong>SQL Injection:</strong> Parameterized queries only, ORM protection</li>
+                    <li><strong>XXE Prevention:</strong> XML parsing disabled by default</li>
+                </ul>
+
+                <h2 id="audit">Audit & Compliance</h2>
+
+                <h3>Immutable Audit Logs</h3>
+                <pre><code>CREATE TABLE audit_logs (
+    id BIGINT PRIMARY KEY,
+    tenant_id BIGINT NOT NULL,
+    action VARCHAR(50),       -- 'create', 'read', 'update', 'delete'
+    resource_type VARCHAR(50), -- 'api_key', 'policy', 'request'
+    actor_type VARCHAR(50),    -- 'user', 'system', 'api'
+    changes JSONB,             -- Before/after values
+    ip_address INET,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Prevent deletion
+CREATE TRIGGER prevent_audit_log_delete
+    BEFORE DELETE ON audit_logs
+    FOR EACH ROW
+    EXECUTE FUNCTION raise_exception();</code></pre>
+
+                <h3>Compliance Frameworks</h3>
+                <ul>
+                    <li><strong>SOC2:</strong> Logical access controls, system monitoring, incident reporting</li>
+                    <li><strong>GDPR:</strong> Data processing agreements, data residency, right to be forgotten, breach notification</li>
+                    <li><strong>HIPAA:</strong> PHI audit controls, encryption, breach notification procedures</li>
+                    <li><strong>ISO 27001:</strong> Information security management system</li>
+                </ul>
+
+                <h3>Governance Policy Engine</h3>
+                <pre><code># Policy example: PII Redaction
+policy := GovernancePolicy{
+    Type: "pii_redaction",
+    Config: {
+        "pii_types": ["ssn", "credit_card", "email"],
+        "action": "redact",
+        "pattern_ssn": `\d{3}-\d{2}-\d{4}`,
+    },
+}</code></pre>
+
+                <h2 id="zero-trust">Zero Trust Architecture</h2>
+                <pre><code>Every Request
+  ├─ 1. Verify Identity
+  │  ├─ API Key validation
+  │  ├─ Token signature check
+  │  └─ Revocation list check
+  │
+  ├─ 2. Verify Device
+  │  ├─ Client certificate verification
+  │  ├─ Mutual TLS
+  │  └─ Device fingerprinting (optional)
+  │
+  ├─ 3. Verify Network
+  │  ├─ IP whitelisting
+  │  ├─ Geo-location check
+  │  └─ VPN/Proxy detection
+  │
+  ├─ 4. Verify Resource
+  │  ├─ Tenant isolation check
+  │  ├─ API key permission check
+  │  └─ Rate limit check
+  │
+  └─ Decision: Allow, Deny, or Challenge</code></pre>
+
+                <h2 id="incident">Incident Response</h2>
+
+                <h3>Detection</h3>
+                <ul>
+                    <li>Automated alerting on security events</li>
+                    <li>Real-time monitoring of audit logs</li>
+                    <li>Anomaly detection ML models</li>
+                </ul>
+
+                <h3>Response Procedures</h3>
+                <ol>
+                    <li>Isolate affected service</li>
+                    <li>Preserve evidence (logs, metrics)</li>
+                    <li>Notify security team</li>
+                    <li>Begin investigation</li>
+                    <li>Communicate with affected customers</li>
+                </ol>
+
+                <h3>Recovery</h3>
+                <ol>
+                    <li>Patch or rollback</li>
+                    <li>Verify remediation</li>
+                    <li>Resume normal operations</li>
+                    <li>Post-incident review</li>
+                </ol>
+
+                <h2 id="checklist">Security Checklist</h2>
+                <div class="alert alert-info">
+                    <strong>Pre-Deployment Verification:</strong>
+                </div>
+                <ul>
+                    <li>☐ TLS 1.3 enabled for all traffic</li>
+                    <li>☐ API keys hashed with SHA-256</li>
+                    <li>☐ JWTs signed with RS256</li>
+                    <li>☐ All database queries parameterized</li>
+                    <li>☐ Row-level security enforced</li>
+                    <li>☐ Audit logs immutable and encrypted</li>
+                    <li>☐ Rate limiting active</li>
+                    <li>☐ DDoS protection enabled</li>
+                    <li>☐ Secrets encrypted at rest</li>
+                    <li>☐ Regular penetration testing</li>
+                    <li>☐ Incident response plan in place</li>
+                    <li>☐ SOC2 audit scheduled</li>
+                    <li>☐ GDPR compliance verified</li>
+                    <li>☐ Data residency policies enforced</li>
+                </ul>
+
+                <div class="alert alert-success">
+                    <strong>🔒 Security Status:</strong> Astra Gateway implements defense-in-depth security with zero-trust principles, comprehensive audit logging, and compliance-ready architecture for enterprise deployments.
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <footer>
+        <div class="footer-content">
+            <div class="footer-section">
+                <h4>Documentation</h4>
+                <a href="index.html">Home</a>
+                <a href="executive-summary.html">Executive Summary</a>
+                <a href="architecture.html">Architecture</a>
+                <a href="implementation-guide.html">Implementation</a>
+                <a href="deployment.html">Deployment</a>
+            </div>
+            <div class="footer-section">
+                <h4>Resources</h4>
+                <a href="security.html">Security Guide</a>
+                <a href="roadmap.html">Production Checklist</a>
+                <a href="#">API Docs</a>
+                <a href="#">Status Page</a>
+            </div>
+            <div class="footer-section">
+                <h4>Community</h4>
+                <a href="#">GitHub</a>
+                <a href="#">Issues</a>
+                <a href="#">Discussions</a>
+                <a href="#">Contributing</a>
+            </div>
+            <div class="footer-section">
+                <h4>Company</h4>
+                <a href="#">About</a>
+                <a href="#">Blog</a>
+                <a href="#">Contact</a>
+                <a href="#">Privacy</a>
+            </div>
+        </div>
+        <div style="text-align: center; margin-top: 40px; padding-top: 20px; border-top: 1px solid rgba(255,255,255,0.1); color: #94a3b8;">
+            <p>&copy; 2024 Astra Gateway. All rights reserved. | Generated: May 20, 2026</p>
+        </div>
+    </footer>
+</body>
+</html>

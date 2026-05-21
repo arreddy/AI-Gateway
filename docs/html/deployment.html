@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Deployment Guide - Astra Gateway Documentation</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header>
+        <nav>
+            <a href="index.html" class="logo">
+                <span>📚</span> Astra Gateway Docs
+            </a>
+            <ul class="nav-links">
+                <li><a href="index.html">Home</a></li>
+                <li><a href="executive-summary.html">Executive Summary</a></li>
+                <li><a href="architecture.html">Architecture</a></li>
+                <li><a href="implementation-guide.html">Implementation</a></li>
+                <li><a href="deployment.html" class="active">Deployment</a></li>
+                <li><a href="security.html">Security</a></li>
+                <li><a href="roadmap.html">Roadmap</a></li>
+            </ul>
+        </nav>
+    </header>
+
+    <main>
+        <div class="container">
+            <aside class="sidebar">
+                <h3>📑 Contents</h3>
+                <ul>
+                    <li><a href="#prerequisites">Prerequisites</a></li>
+                    <li><a href="#architecture">Architecture</a></li>
+                    <li><a href="#deployment-steps">Deployment Steps</a></li>
+                    <li><a href="#helm">Helm Deployment</a></li>
+                    <li><a href="#production">Production Configuration</a></li>
+                    <li><a href="#multi-region">Multi-Region</a></li>
+                    <li><a href="#disaster-recovery">Disaster Recovery</a></li>
+                    <li><a href="#troubleshooting">Troubleshooting</a></li>
+                </ul>
+            </aside>
+
+            <section class="content">
+                <h1>Deployment Guide for Astra Gateway</h1>
+
+                <h2 id="prerequisites">Prerequisites</h2>
+                <ul>
+                    <li>Kubernetes 1.24+</li>
+                    <li>Helm 3.0+</li>
+                    <li>Docker</li>
+                    <li>Terraform (for cloud infrastructure)</li>
+                    <li>kubectl configured</li>
+                </ul>
+
+                <h2 id="architecture">Architecture Overview</h2>
+                <p>Astra Gateway is deployed as microservices on Kubernetes with the following stack:</p>
+                <pre><code>Cloud Load Balancer (AWS/GCP/Azure)
+    ↓
+NGINX Ingress Controller (SSL/TLS)
+    ↓
+Istio Service Mesh (optional, for advanced routing)
+    ↓
+Gateway Service (3+ replicas)
+    ↓
+[Auth Service] [Routing Engine] [Governance Engine]
+    ↓
+[PostgreSQL] [Redis] [ClickHouse]</code></pre>
+
+                <h2 id="deployment-steps">Deployment Steps</h2>
+
+                <h3>1. Prepare Infrastructure</h3>
+                <pre><code># Create cloud infrastructure with Terraform
+cd infrastructure/terraform
+terraform init
+terraform apply
+
+# Output includes VPC, cluster, RDS, ElastiCache, security groups</code></pre>
+
+                <h3>2. Create Kubernetes Cluster</h3>
+                <pre><code># AWS EKS
+aws eks create-cluster \
+  --name astra-gateway \
+  --version 1.28
+
+# Get kubeconfig
+aws eks update-kubeconfig --name astra-gateway
+
+# GCP GKE
+gcloud container clusters create astra-gateway \
+  --zone us-central1-a \
+  --num-nodes 3
+
+# Azure AKS
+az aks create \
+  --resource-group astra-rg \
+  --name astra-gateway \
+  --node-count 3</code></pre>
+
+                <h3>3. Install Kubernetes Add-ons</h3>
+                <pre><code># NGINX Ingress Controller
+helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+helm install ingress-nginx ingress-nginx/ingress-nginx \
+  --namespace ingress-nginx --create-namespace
+
+# Cert Manager
+helm repo add jetstack https://charts.jetstack.io
+helm install cert-manager jetstack/cert-manager \
+  --namespace cert-manager --create-namespace \
+  --set installCRDs=true
+
+# Prometheus Operator
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+helm install prometheus prometheus-community/kube-prometheus-stack \
+  --namespace monitoring --create-namespace
+
+# Istio (optional)
+istioctl install --set profile=production -y
+
+# ELK Stack
+helm repo add elastic https://helm.elastic.co
+helm install elasticsearch elastic/elasticsearch \
+  --namespace logging --create-namespace</code></pre>
+
+                <h3>4. Configure Secrets and ConfigMaps</h3>
+                <pre><code># Create namespace
+kubectl create namespace astra
+
+# Create secrets
+kubectl create secret generic astra-secrets \
+  -n astra \
+  --from-literal=JWT_SECRET_KEY=$(openssl rand -base64 32) \
+  --from-literal=DATABASE_URL="postgresql://..." \
+  --from-literal=REDIS_URL="redis://..." \
+  --from-literal=OPENAI_API_KEY="sk-..."
+
+# Create ConfigMap
+kubectl create configmap astra-config \
+  -n astra \
+  --from-literal=ENVIRONMENT=production \
+  --from-literal=LOG_LEVEL=info</code></pre>
+
+                <h3>5. Deploy Database Migrations</h3>
+                <pre><code># Create migration job
+kubectl apply -f infrastructure/k8s/db-migration-job.yaml
+
+# Wait for completion
+kubectl wait --for=condition=complete job/astra-db-migration \
+  -n astra --timeout=300s
+
+# Verify database
+kubectl exec -it postgres-0 -n astra -- \
+  psql -U astra -d astra -c "SELECT version();"</code></pre>
+
+                <h3>6. Deploy Astra Gateway Services</h3>
+                <pre><code># Deploy core infrastructure
+kubectl apply -f infrastructure/k8s/astra-core.yaml
+
+# Verify services
+kubectl get pods -n astra
+kubectl get svc -n astra
+
+# Deploy remaining services
+kubectl apply -f infrastructure/k8s/auth-service.yaml
+kubectl apply -f infrastructure/k8s/routing-engine.yaml
+kubectl apply -f infrastructure/k8s/governance-engine.yaml</code></pre>
+
+                <h3>7. Configure Ingress and DNS</h3>
+                <pre><code># Create ClusterIssuer
+kubectl apply -f infrastructure/k8s/cert-issuer.yaml
+
+# Apply Ingress configuration
+kubectl apply -f infrastructure/k8s/ingress.yaml
+
+# Get load balancer IP
+kubectl get ingress -n astra
+
+# Update DNS records
+# api.astragateway.io -> <LOAD_BALANCER_IP></code></pre>
+
+                <h3>8. Verify Deployment</h3>
+                <pre><code># Check all pods
+kubectl get pods -n astra --watch
+
+# Test health endpoint
+curl -X GET http://localhost:8080/health \
+  -H "Authorization: Bearer test-token"
+
+# Check logs
+kubectl logs -n astra -l app=gateway-service -f
+
+# Port forward for testing
+kubectl port-forward -n astra svc/gateway-service 8080:80</code></pre>
+
+                <h2 id="helm">Helm Deployment (Recommended)</h2>
+                <pre><code># Add Astra Helm repository
+helm repo add astra https://helm.astragateway.io
+helm repo update
+
+# Install Astra Gateway
+helm install astra-gateway astra/astra-gateway \
+  --namespace astra \
+  --create-namespace \
+  --values infrastructure/helm/values.yaml
+
+# Verify installation
+helm status astra-gateway -n astra
+
+# Upgrade
+helm upgrade astra-gateway astra/astra-gateway \
+  --namespace astra \
+  --values infrastructure/helm/values-prod.yaml
+
+# Rollback
+helm rollback astra-gateway 1 -n astra</code></pre>
+
+                <h2 id="production">Production Configuration</h2>
+
+                <h3>High Availability</h3>
+                <pre><code>postgresql:
+  replication:
+    enabled: true
+    slots: 3
+  backup:
+    schedule: "0 2 * * *"  # Daily at 2 AM UTC
+
+redis:
+  sentinel:
+    enabled: true
+    quorum: 2
+
+gateway:
+  replicas: 5
+  pod_disruption_budget:
+    min_available: 3</code></pre>
+
+                <h3>Monitoring Setup</h3>
+                <pre><code># Port forward Prometheus
+kubectl port-forward -n monitoring svc/prometheus-kube-prom-prometheus 9090:9090
+
+# Port forward Grafana
+kubectl port-forward -n monitoring svc/prometheus-grafana 3000:80
+# Login with admin/prom-operator
+
+# Port forward Jaeger
+kubectl port-forward -n monitoring svc/jaeger 16686:16686</code></pre>
+
+                <h3>Auto-Scaling Configuration</h3>
+                <pre><code>autoscaling:
+  enabled: true
+  min_replicas: 3
+  max_replicas: 50
+  target_cpu_utilization: 70
+  target_memory_utilization: 80
+  scale_down_behavior:
+    stabilization_window: 300s</code></pre>
+
+                <h2 id="multi-region">Multi-Region Deployment</h2>
+
+                <h3>Primary Region (US-EAST-1)</h3>
+                <pre><code># Create primary cluster
+eksctl create cluster --name astra-gateway-us-east-1
+
+# Deploy Astra Gateway
+helm install astra-gateway astra/astra-gateway \
+  --namespace astra \
+  --values infrastructure/helm/values-us-east.yaml</code></pre>
+
+                <h3>Secondary Region (EU-WEST-1)</h3>
+                <pre><code># Create secondary cluster
+eksctl create cluster --name astra-gateway-eu-west-1
+
+# Deploy Astra Gateway
+helm install astra-gateway astra/astra-gateway \
+  --namespace astra \
+  --values infrastructure/helm/values-eu-west.yaml
+
+# Enable cross-region replication
+kubectl apply -f infrastructure/k8s/cross-region-replication.yaml</code></pre>
+
+                <h3>Global Load Balancing</h3>
+                <pre><code># Configure Route 53 health checks
+aws route53 create-health-check \
+  --health-check-config IPAddress=us-east-1-lb-ip
+
+# Create weighted routing policy
+# api.astragateway.io -> 50% us-east, 50% eu-west</code></pre>
+
+                <h2 id="disaster-recovery">Disaster Recovery</h2>
+
+                <h3>Backup Strategy</h3>
+                <ul>
+                    <li><strong>PostgreSQL:</strong> WAL archiving to S3 every 5 minutes, 30-day retention</li>
+                    <li><strong>Redis:</strong> Daily snapshot backup to S3</li>
+                    <li><strong>ClickHouse:</strong> Replicated tables across regions</li>
+                    <li><strong>Verification:</strong> Hourly backup verification job</li>
+                </ul>
+
+                <h3>Recovery Procedure</h3>
+                <pre><code># 1. Restore database from backup
+BACKUP_ID=latest
+aws rds restore-db-instance-from-db-snapshot \
+  --db-instance-identifier astra-gateway-restored \
+  --db-snapshot-identifier arn:aws:rds:...
+
+# 2. Update connection string
+kubectl patch secret astra-secrets \
+  -p '{"data":{"DATABASE_URL":"postgresql://restored-db:5432/astra"}}'
+
+# 3. Restart services
+kubectl rollout restart deployment/gateway-service -n astra
+
+# 4. Verify health
+curl http://gateway-service:8080/health</code></pre>
+
+                <h2 id="troubleshooting">Troubleshooting</h2>
+
+                <h3>Pod not starting</h3>
+                <pre><code># Check pod status
+kubectl describe pod gateway-service-xxxx -n astra
+
+# Check logs
+kubectl logs gateway-service-xxxx -n astra
+kubectl logs gateway-service-xxxx -n astra --previous
+
+# Check resources
+kubectl top nodes
+kubectl describe node <node-name></code></pre>
+
+                <h3>Database connection issues</h3>
+                <pre><code># Test PostgreSQL connectivity
+kubectl exec -it postgres-0 -n astra -- \
+  psql -U astra -d astra
+
+# Check connection pool
+SELECT datname, count(*) FROM pg_stat_activity GROUP BY datname;
+
+# Kill idle connections
+SELECT pg_terminate_backend(pid) FROM pg_stat_activity 
+  WHERE usename = 'astra' AND state = 'idle';</code></pre>
+
+                <h3>Memory leaks</h3>
+                <pre><code># Monitor memory usage
+kubectl top pods -n astra --containers
+
+# Get memory profile
+kubectl exec -it gateway-service-xxxx -n astra -- \
+  curl localhost:6060/debug/pprof/heap > heap.prof
+
+# Analyze
+go tool pprof heap.prof</code></pre>
+
+                <h2>Cleanup</h2>
+                <pre><code># Delete Astra Gateway
+helm uninstall astra-gateway -n astra
+
+# Delete namespace
+kubectl delete namespace astra
+
+# Delete cloud infrastructure
+terraform destroy -auto-approve</code></pre>
+
+                <div class="alert alert-success">
+                    <strong>✅ Deployment Complete:</strong> Your Astra Gateway platform is now running on Kubernetes with high availability, monitoring, and disaster recovery configured!
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <footer>
+        <div class="footer-content">
+            <div class="footer-section">
+                <h4>Documentation</h4>
+                <a href="index.html">Home</a>
+                <a href="executive-summary.html">Executive Summary</a>
+                <a href="architecture.html">Architecture</a>
+                <a href="implementation-guide.html">Implementation</a>
+                <a href="deployment.html">Deployment</a>
+            </div>
+            <div class="footer-section">
+                <h4>Resources</h4>
+                <a href="security.html">Security Guide</a>
+                <a href="roadmap.html">Production Checklist</a>
+                <a href="#">API Docs</a>
+                <a href="#">Status Page</a>
+            </div>
+            <div class="footer-section">
+                <h4>Community</h4>
+                <a href="#">GitHub</a>
+                <a href="#">Issues</a>
+                <a href="#">Discussions</a>
+                <a href="#">Contributing</a>
+            </div>
+            <div class="footer-section">
+                <h4>Company</h4>
+                <a href="#">About</a>
+                <a href="#">Blog</a>
+                <a href="#">Contact</a>
+                <a href="#">Privacy</a>
+            </div>
+        </div>
+        <div style="text-align: center; margin-top: 40px; padding-top: 20px; border-top: 1px solid rgba(255,255,255,0.1); color: #94a3b8;">
+            <p>&copy; 2024 Astra Gateway. All rights reserved. | Generated: May 20, 2026</p>
+        </div>
+    </footer>
+</body>
+</html>
