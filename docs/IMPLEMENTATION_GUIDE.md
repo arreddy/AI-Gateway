@@ -312,6 +312,160 @@ func (o *ObservabilityService) RecordRequest(ctx context.Context, metrics *Reque
 }
 ```
 
+### 6. A2A Service (Port 8082)
+**Purpose:** Agent-to-Agent communication and coordination
+**Language:** Go
+**Key Responsibilities:**
+- Agent registration and discovery
+- Point-to-point messaging
+- Publish-Subscribe events
+- Task distribution and coordination
+- Agent health monitoring
+
+**Architecture:**
+```
+┌─────────────────────────────┐
+│      A2A Service            │
+├─────────────────────────────┤
+│  Agent Registry (Redis)     │
+│  • Agent metadata           │
+│  • Capability index         │
+│  • Health status            │
+├─────────────────────────────┤
+│  Message Broker (Kafka)     │
+│  • Point-to-point queue     │
+│  • Pub-sub topics           │
+│  • Task distribution        │
+├─────────────────────────────┤
+│  REST API & gRPC            │
+│  • HTTP/REST endpoints      │
+│  • gRPC services            │
+│  • WebSocket streaming      │
+└─────────────────────────────┘
+```
+
+**Key Endpoints:**
+- `POST /v1/agents/register` - Register new agent
+- `GET /v1/agents` - List all agents
+- `GET /v1/agents/search?capability=routing` - Find agents by capability
+- `POST /v1/messages/send` - Send point-to-point message
+- `POST /v1/messages/publish` - Publish event to subscribers
+- `GET /v1/messages/receive?agent_id=gateway-1` - Long-poll for messages
+- `POST /v1/tasks/distribute` - Distribute task to agents
+- `GET /v1/tasks/{taskId}` - Get task status
+
+**Quick Implementation:**
+```go
+package main
+
+import (
+    "github.com/gin-gonic/gin"
+    "github.com/go-redis/redis/v8"
+)
+
+func main() {
+    // Initialize Redis registry
+    redis := redis.NewClient(&redis.Options{
+        Addr: "redis:6379",
+    })
+    
+    registry := NewAgentRegistry(redis)
+    broker := NewMessageBroker([]string{"kafka:29092"})
+    
+    // Setup HTTP server
+    router := gin.Default()
+    
+    // Agent management
+    router.POST("/v1/agents/register", func(c *gin.Context) {
+        var req RegisterAgentRequest
+        c.BindJSON(&req)
+        
+        // Register agent in registry
+        registry.RegisterAgent(c.Request.Context(), req.AgentID, req)
+        c.JSON(201, gin.H{"status": "registered"})
+    })
+    
+    // Message sending
+    router.POST("/v1/messages/send", func(c *gin.Context) {
+        var req SendMessageRequest
+        c.BindJSON(&req)
+        
+        // Route message to target agent
+        msgID := uuid.New().String()
+        broker.PublishMessage(c.Request.Context(), msgID, req)
+        
+        c.JSON(202, gin.H{
+            "message_id": msgID,
+            "status": "accepted",
+        })
+    })
+    
+    // Agent discovery
+    router.GET("/v1/agents/search", func(c *gin.Context) {
+        capability := c.Query("capability")
+        region := c.Query("region")
+        
+        agents, _ := registry.SearchByCapability(
+            c.Request.Context(), 
+            capability, 
+            region,
+        )
+        
+        c.JSON(200, gin.H{
+            "agents": agents,
+            "count": len(agents),
+        })
+    })
+    
+    router.Run(":8082")
+}
+```
+
+**Usage Example:**
+```bash
+# Register agent
+curl -X POST http://localhost:8082/v1/agents/register \
+  -H "Content-Type: application/json" \
+  -d '{
+    "agent_id": "mcp-1",
+    "agent_type": "mcp",
+    "capabilities": ["tools", "resources"],
+    "endpoints": {
+      "grpc": "mcp-service:50052",
+      "http": "mcp-service:8081"
+    },
+    "region": "us-east-1"
+  }'
+
+# Send message to agent
+curl -X POST http://localhost:8082/v1/messages/send \
+  -H "Content-Type: application/json" \
+  -d '{
+    "to_agent_id": "mcp-1",
+    "from_agent_id": "gateway-1",
+    "message_type": "tool_discovery_request",
+    "payload": {
+      "query": "find all tools",
+      "timestamp": 1704067200
+    }
+  }'
+
+# Search for agents by capability
+curl http://localhost:8082/v1/agents/search?capability=tools
+
+# Publish event to all subscribers
+curl -X POST http://localhost:8082/v1/messages/publish \
+  -H "Content-Type: application/json" \
+  -d '{
+    "event_type": "agent_registered",
+    "source_agent": "a2a-service",
+    "payload": {
+      "agent_id": "mcp-1",
+      "timestamp": 1704067200
+    }
+  }'
+```
+
 ## Database Schema
 
 ### Key Tables

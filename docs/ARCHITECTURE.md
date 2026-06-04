@@ -65,6 +65,11 @@ Astra Gateway is a cloud-native microservices platform built for enterprise AI w
 │  │  │ Service      │  │ Service      │  │ Manager      │       │ │
 │  │  └──────────────┘  └──────────────┘  └──────────────┘       │ │
 │  │                                                               │ │
+│  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐       │ │
+│  │  │ A2A Service  │  │ MCP Service  │  │ [Future]     │       │ │
+│  │  │ (Agent-Agent)│  │ (MCP Client) │  │              │       │ │
+│  │  └──────────────┘  └──────────────┘  └──────────────┘       │ │
+│  │                                                               │ │
 │  └───────────────────────────────────────────────────────────────┘ │
 │                                                                     │
 │  ┌───────────────────────────────────────────────────────────────┐ │
@@ -253,6 +258,77 @@ Gateway Operations
     ├─→ [Billing Service] → [Invoice Generation]
     ├─→ [Alerting Service] → [Alert Rules]
     └─→ [Tracing Service] → [Jaeger/Tempo] → [Debugging]
+```
+
+#### Agent-to-Agent (A2A) Communication Service
+```
+Inter-Agent Communication Architecture
+
+Agent Registry & Discovery
+    ├─ Agent metadata storage (Redis)
+    ├─ Capability-based indexing
+    ├─ Health monitoring
+    └─ Load balancing
+    ↓
+Message Routing
+    ├─ Point-to-point messaging
+    │  ├─ Guaranteed delivery
+    │  ├─ Automatic retries
+    │  └─ Message ordering (per pair)
+    ├─ Publish-Subscribe events
+    │  ├─ Topic-based routing
+    │  ├─ Subscriber notifications
+    │  └─ Event streaming (Kafka)
+    └─ Task Distribution
+       ├─ Work queue management
+       ├─ Agent assignment
+       └─ Result aggregation
+    ↓
+Communication Patterns
+    ├─ gRPC (high-performance, low-latency)
+    │  └─ For inter-service communication
+    ├─ REST/HTTP (webhooks, long-polling)
+    │  └─ For external integrations
+    └─ WebSocket (real-time streaming)
+       └─ For live connections
+    ↓
+Security & Compliance
+    ├─ mTLS authentication
+    ├─ Message encryption
+    ├─ Access control lists (ACLs)
+    ├─ Rate limiting per agent pair
+    └─ Audit logging
+    ↓
+Message Delivery
+    ├─ Kafka topics for persistence
+    │  ├─ a2a.messages (point-to-point)
+    │  ├─ a2a.events (pub-sub)
+    │  └─ a2a.tasks (work distribution)
+    └─ Guaranteed at-least-once delivery
+```
+
+Agent Communication Flow Example:
+```
+[Gateway Service] needs to make async routing decision
+    ↓
+Publish message to MCP Service
+    │
+[A2A Service]
+    ├─ Look up MCP Service agents by capability
+    ├─ Select agent with lowest load
+    ├─ Queue message to selected agent
+    └─ Record message delivery status
+    ↓
+[MCP Service Agent 1]
+    ├─ Receive message via long-poll
+    ├─ Process tool discovery request
+    ├─ Report result back to A2A Service
+    └─ Delete from queue
+    ↓
+[Gateway Service]
+    ├─ Poll for response
+    ├─ Apply returned routing decision
+    └─ Send LLM request to provider
 ```
 
 ## Data Flow Diagrams

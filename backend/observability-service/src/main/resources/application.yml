@@ -1,0 +1,27 @@
+spring:
+  application:
+    name: observability-service
+  server:
+    port: 8086
+
+  kafka:
+    bootstrap-servers: kafka:29092
+    consumer:
+      group-id: observability-service
+
+logging:
+  level:
+    root: INFO
+    com.astra: DEBUG
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} - %logger{36} - %msg%n"
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,metrics,prometheus
+  metrics:
+    export:
+      prometheus:
+        enabled: true

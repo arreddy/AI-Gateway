@@ -1,0 +1,99 @@
+spring:
+  application:
+    name: gateway-service
+  server:
+    port: 8080
+    servlet:
+      context-path: /
+    compression:
+      enabled: true
+      min-response-size: 1024
+
+  datasource:
+    url: jdbc:postgresql://postgres:5432/astra
+    username: astra
+    password: astra_dev_password
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        jdbc:
+          batch_size: 20
+        order_inserts: true
+        order_updates: true
+
+  data:
+    redis:
+      host: redis
+      port: 6379
+      timeout: 2000
+      jedis:
+        pool:
+          max-active: 100
+          max-idle: 50
+          min-idle: 10
+
+  kafka:
+    bootstrap-servers: kafka:29092
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      acks: all
+      retries: 3
+    consumer:
+      group-id: gateway-service
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: "*"
+
+  cache:
+    type: redis
+    redis:
+      time-to-live: 300000
+
+logging:
+  level:
+    root: INFO
+    com.astra: DEBUG
+    org.springframework: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} - %logger{36} - %msg%n"
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,metrics,prometheus
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+    distribution:
+      percentiles-histogram:
+        gateway.request.duration: true
+
+providers:
+  anthropic:
+    base-url: https://api.anthropic.com
+    api-key: ${ANTHROPIC_API_KEY:}
+  openai:
+    base-url: https://api.openai.com
+    api-key: ${OPENAI_API_KEY:}
+
+server:
+  port: 8080
+  shutdown: graceful
+  error:
+    include-message: always
+    include-binding-errors: always

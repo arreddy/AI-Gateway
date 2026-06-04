@@ -1,0 +1,54 @@
+version: "1.0"
+
+agents:
+  gateway-service:
+    type: "gateway"
+    capabilities:
+      - "routing"
+      - "ratelimit"
+      - "auth"
+      - "caching"
+    replicas: 3
+    regions:
+      - "us-east-1"
+      - "us-west-2"
+    endpoints:
+      http: "gateway-service:8080"
+      grpc: "gateway-service:50051"
+  
+  mcp-service:
+    type: "mcp"
+    capabilities:
+      - "tools"
+      - "resources"
+      - "discovery"
+    replicas: 2
+    regions:
+      - "us-east-1"
+    endpoints:
+      http: "mcp-service:8081"
+      grpc: "mcp-service:50052"
+  
+  auth-service:
+    type: "auth"
+    capabilities:
+      - "authentication"
+      - "authorization"
+      - "token_validation"
+    replicas: 1
+    regions:
+      - "us-east-1"
+    endpoints:
+      http: "auth-service:8083"
+      grpc: "auth-service:50053"
+
+# Default settings for all agents
+defaults:
+  health_check_interval: "10s"
+  heartbeat_timeout: "5m"
+  message_timeout: "30s"
+  retry_policy:
+    max_attempts: 3
+    backoff_type: "exponential"
+    initial_delay: "100ms"
+    max_delay: "30s"
