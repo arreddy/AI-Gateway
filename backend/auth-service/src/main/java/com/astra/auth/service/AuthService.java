@@ -20,6 +20,9 @@ public class AuthService {
     private final AuthProperties authProperties;
 
     public Map<String, Object> verifyToken(String token) {
+        if (token == null || token.isBlank()) {
+            return Map.of("valid", false, "reason", "invalid_token");
+        }
         try {
             SecretKey key = Keys.hmacShaKeyFor(
                 authProperties.getJwt().getSecret().getBytes(StandardCharsets.UTF_8));

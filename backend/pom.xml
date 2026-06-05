@@ -181,6 +181,23 @@
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <!-- @{argLine} late-bound so JaCoCo's prepare-agent injects its agent string first.
+                         experimental=true is needed for byte-buddy to mock Spring's StringRedisTemplate
+                         (final/module-sealed hierarchy). JaCoCo excludes com/sun/** so it never
+                         tries to instrument VirtualMachine (Java 25 bytecode, class file 69). -->
+                    <argLine>
+                        @{argLine}
+                        -Dnet.bytebuddy.experimental=true
+                        --add-opens java.base/java.lang=ALL-UNNAMED
+                        --add-opens java.base/java.util=ALL-UNNAMED
+                        --add-opens java.base/java.util.concurrent=ALL-UNNAMED
+                    </argLine>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
                 <version>3.13.0</version>
                 <configuration>
@@ -199,6 +216,67 @@
                         </path>
                     </annotationProcessorPaths>
                 </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>0.8.12</version>
+                <executions>
+                    <execution>
+                        <id>prepare-agent</id>
+                        <goals><goal>prepare-agent</goal></goals>
+                        <configuration>
+                            <!-- ** crosses package separators in JaCoCo patterns.
+                                 JaCoCo 0.8.12's ASM only knows up to class file 65 (Java 21).
+                                 Three categories of Java 25 bytecode must be excluded:
+                                 1) Mockito-generated subclass/inline proxies
+                                 2) JDK tool classes loaded by byte-buddy's dynamic agent attach
+                                    (com/sun/tools/attach/VirtualMachine etc.)
+                                 3) Other JDK internal / sun.* bootstrap classes -->
+                            <excludes>
+                                <exclude>**$MockitoMock*</exclude>
+                                <exclude>**$auxiliary*</exclude>
+                                <exclude>com/sun/**</exclude>
+                                <exclude>sun/**</exclude>
+                                <exclude>jdk/**</exclude>
+                            </excludes>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>report</id>
+                        <phase>test</phase>
+                        <goals><goal>report</goal></goals>
+                    </execution>
+                    <execution>
+                        <id>check</id>
+                        <goals><goal>check</goal></goals>
+                        <configuration>
+                            <!-- haltOnFailure=false: report coverage as a warning, not a build break.
+                                 gateway-service has untested MCP/A2A components that need more
+                                 coverage before the 80% gate can be enforced there. -->
+                            <haltOnFailure>false</haltOnFailure>
+                            <rules>
+                                <rule>
+                                    <element>BUNDLE</element>
+                                    <limits>
+                                        <limit>
+                                            <counter>INSTRUCTION</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>0.80</minimum>
+                                        </limit>
+                                    </limits>
+                                </rule>
+                            </rules>
+                            <excludes>
+                                <exclude>**/*Application.class</exclude>
+                                <exclude>**/entity/**</exclude>
+                                <exclude>**/model/**</exclude>
+                                <exclude>**/repository/**</exclude>
+                                <exclude>**/config/**</exclude>
+                            </excludes>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>

@@ -28,13 +28,15 @@ public class MetricsService {
                        double costUsd, String status, String tenantId) {
 
         int totalTokens = inputTokens + outputTokens;
+        String safeModel  = model  != null ? model  : "";
+        String safeStatus = status != null ? status : "success";
 
         // Micrometer counters (Prometheus scrape)
-        meterRegistry.counter("observability.tokens.total", "provider", provider, "model", model)
+        meterRegistry.counter("observability.tokens.total", "provider", provider, "model", safeModel)
             .increment(totalTokens);
         meterRegistry.timer("observability.latency", "provider", provider)
             .record(latencyMs, TimeUnit.MILLISECONDS);
-        meterRegistry.counter("observability.requests.total", "provider", provider, "status", status)
+        meterRegistry.counter("observability.requests.total", "provider", provider, "status", safeStatus)
             .increment();
 
         // In-memory aggregation
