@@ -6,6 +6,7 @@ import {
   GitBranch, Shield, Activity, ChevronRight,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import ApiKeyWidget from "./ApiKeyWidget";
 
 const NAV = [
   { href: "/",              label: "Dashboard",       icon: LayoutDashboard },
@@ -51,8 +52,11 @@ export default function Sidebar() {
         })}
       </nav>
 
+      {/* api key */}
+      <ApiKeyWidget />
+
       {/* footer */}
-      <div className="border-t border-zinc-800 px-5 py-3 text-xs text-zinc-600">
+      <div className="border-t border-zinc-800 px-5 py-2 text-xs text-zinc-600">
         v1.0 · Astra Gateway
       </div>
     </aside>

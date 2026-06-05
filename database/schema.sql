@@ -2,18 +2,9 @@
 -- PostgreSQL 14+
 -- Multi-tenant architecture with tenant isolation
 
--- ============================================================================
--- ENUM TYPES
--- ============================================================================
-
-CREATE TYPE tenant_status AS ENUM ('active', 'suspended', 'deleted', 'trial');
-CREATE TYPE api_key_status AS ENUM ('active', 'rotated', 'revoked', 'expired');
-CREATE TYPE provider_status AS ENUM ('healthy', 'degraded', 'unhealthy', 'maintenance');
-CREATE TYPE model_status AS ENUM ('available', 'deprecated', 'unavailable', 'beta');
-CREATE TYPE request_status AS ENUM ('success', 'partial', 'failed', 'timeout', 'cancelled');
-CREATE TYPE audit_action AS ENUM ('create', 'read', 'update', 'delete', 'fallback', 'policy_violation');
-CREATE TYPE governance_action AS ENUM ('allow', 'block', 'redact', 'warn', 'quarantine');
-CREATE TYPE billing_event_type AS ENUM ('usage', 'adjustment', 'refund', 'promotion', 'correction');
+-- Note: using VARCHAR(50) instead of PostgreSQL custom enum types so that
+-- JPA/Hibernate string binding works without explicit casting.
+-- Valid values are enforced at the application layer.
 
 -- ============================================================================
 -- CORE TABLES
@@ -26,7 +17,7 @@ CREATE TABLE tenants (
     name VARCHAR(255) NOT NULL,
     slug VARCHAR(100) UNIQUE NOT NULL,
     email VARCHAR(255) NOT NULL,
-    status tenant_status DEFAULT 'active',
+    status VARCHAR(50) DEFAULT 'active',
     
     -- Tier: free, starter, pro, enterprise
     tier VARCHAR(50) DEFAULT 'free',
@@ -66,15 +57,15 @@ CREATE TABLE api_keys (
     key_preview VARCHAR(20),                 -- Last 20 chars for display
     
     name VARCHAR(255),                       -- User-friendly name
-    status api_key_status DEFAULT 'active',
+    status VARCHAR(50) DEFAULT 'active',
     
     -- Permissions
-    permissions TEXT[] DEFAULT ARRAY['completions:create', 'models:list'],
+    permissions TEXT DEFAULT 'completions:create,models:list',
     
     -- Scope limitations
-    allowed_models TEXT[],                   -- NULL = all models
-    allowed_ip_addresses INET[],             -- NULL = all IPs
-    allowed_referers TEXT[],                 -- NULL = all referers
+    allowed_models TEXT,                   -- NULL = all models
+    allowed_ip_addresses TEXT,             -- NULL = all IPs
+    allowed_referers TEXT,                 -- NULL = all referers
     
     -- Usage tracking
     last_used_at TIMESTAMP WITH TIME ZONE,
@@ -146,7 +137,7 @@ CREATE TABLE providers (
     name VARCHAR(50) UNIQUE NOT NULL,       -- 'openai', 'anthropic', 'google'
     display_name VARCHAR(255),
     
-    status provider_status DEFAULT 'healthy',
+    status VARCHAR(50) DEFAULT 'healthy',
     
     -- API Configuration
     api_base_url VARCHAR(500),
@@ -181,7 +172,7 @@ CREATE TABLE models (
     display_name VARCHAR(255),
     description TEXT,
     
-    status model_status DEFAULT 'available',
+    status VARCHAR(50) DEFAULT 'available',
     
     -- Capabilities
     capabilities JSONB,                     -- {vision: true, function_calling: true, vision_url_support: true}
@@ -259,7 +250,7 @@ CREATE TABLE routing_policies (
     rules JSONB,                            -- Complex routing rules
     
     -- Fallback chain
-    fallback_chain TEXT[],                  -- ["openai.gpt-4", "anthropic.claude-3", "mistral.large"]
+    fallback_chain TEXT,                  -- ["openai.gpt-4", "anthropic.claude-3", "mistral.large"]
     
     -- Constraints
     constraints JSONB,                      -- {cost_max: 0.10, latency_max: 5000}
@@ -290,7 +281,7 @@ CREATE TABLE governance_policies (
     config JSONB,                           -- Type-specific config
     
     -- Action to take
-    action governance_action DEFAULT 'warn',
+    action VARCHAR(50) DEFAULT 'warn',
     
     -- Conditions
     conditions JSONB,                       -- When this policy applies
@@ -361,7 +352,7 @@ CREATE TABLE request_logs (
     total_cost DECIMAL(15, 8),
     
     -- Status
-    status request_status DEFAULT 'success',
+    status VARCHAR(50) DEFAULT 'success',
     error_code VARCHAR(50),
     error_message TEXT,
     
@@ -377,7 +368,7 @@ CREATE TABLE request_logs (
     pii_detected BOOLEAN DEFAULT false,
     injection_detected BOOLEAN DEFAULT false,
     toxicity_score DECIMAL(5, 4),
-    policies_triggered TEXT[],
+    policies_triggered TEXT,
     
     -- Timing
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
@@ -427,7 +418,7 @@ CREATE TABLE billing_events (
     
     -- Event metadata
     event_id UUID UNIQUE NOT NULL,
-    event_type billing_event_type,
+    event_type VARCHAR(50),
     
     -- Amount
     amount DECIMAL(15, 8),
@@ -497,7 +488,7 @@ CREATE TABLE audit_logs (
     actor_id VARCHAR(255),
     
     -- Action
-    action audit_action NOT NULL,
+    action VARCHAR(50) NOT NULL,
     resource_type VARCHAR(50),              -- 'api_key', 'policy', 'request'
     resource_id VARCHAR(255),
     
@@ -536,7 +527,7 @@ CREATE TABLE governance_violations (
     details JSONB,                          -- {detected: 'SSN', value: 'xxx-xx-1234', confidence: 0.99}
     
     -- Resolution
-    action_taken governance_action,
+    action_taken VARCHAR(50),
     resolved_at TIMESTAMP WITH TIME ZONE,
     
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
@@ -582,7 +573,7 @@ CREATE TABLE provider_health_checks (
     provider_id BIGINT NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
     
     -- Status
-    status provider_status,
+    status VARCHAR(50),
     latency_ms INT,
     
     -- Error info
@@ -656,7 +647,7 @@ CREATE TABLE alerts (
     resolved_at TIMESTAMP WITH TIME ZONE,
     
     -- Metadata
-    tags TEXT[],
+    tags TEXT,
     
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP

@@ -17,6 +17,7 @@ public class RoutingService {
     private static final Map<String, ProviderMeta> CATALOG = Map.of(
         "anthropic", new ProviderMeta("anthropic", 0.015, 100.0, 0.95),
         "openai",    new ProviderMeta("openai",    0.010, 120.0, 0.93),
+        "google",    new ProviderMeta("google",    0.004, 110.0, 0.93),
         "cohere",    new ProviderMeta("cohere",    0.002, 180.0, 0.85)
     );
 
@@ -77,6 +78,7 @@ public class RoutingService {
         if (model == null) return "anthropic";
         if (model.startsWith("claude")) return "anthropic";
         if (model.startsWith("gpt") || model.startsWith("o1") || model.startsWith("o3")) return "openai";
+        if (model.startsWith("gemini")) return "google";
         if (model.startsWith("command")) return "cohere";
         return "anthropic";
     }

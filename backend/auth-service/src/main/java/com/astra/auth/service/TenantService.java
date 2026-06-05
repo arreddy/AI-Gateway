@@ -7,6 +7,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -60,6 +61,12 @@ public class TenantService {
         Tenant tenant = tenantRepository.findByExternalId(externalId)
             .orElseThrow(() -> new IllegalArgumentException("Tenant not found: " + externalId));
         tenant.setStatus(status);
+        // Soft-delete constraint: deleted_at must be set when status = 'deleted'
+        if ("deleted".equals(status) && tenant.getDeletedAt() == null) {
+            tenant.setDeletedAt(OffsetDateTime.now());
+        } else if (!"deleted".equals(status)) {
+            tenant.setDeletedAt(null);
+        }
         return tenantRepository.save(tenant);
     }
 

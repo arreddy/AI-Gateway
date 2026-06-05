@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 
-// Resolved at server startup — picks up Docker compose env vars at runtime
 const SERVICES: Record<string, string> = {
   gateway:       process.env.GATEWAY_URL      ?? "http://localhost:8080",
   auth:          process.env.AUTH_URL         ?? "http://localhost:8083",
@@ -17,14 +16,16 @@ async function forward(
   if (!base) return NextResponse.json({ error: "Unknown service" }, { status: 404 });
 
   const target = `${base}/${params.path.join("/")}`;
-  const contentType = request.headers.get("content-type") ?? "";
 
-  const init: RequestInit = {
-    method: request.method,
-    headers: { "content-type": "application/json" },
-  };
+  // Forward auth + content-type from the browser request
+  const headers: Record<string, string> = { "content-type": "application/json" };
+  const auth = request.headers.get("authorization");
+  if (auth) headers["authorization"] = auth;
+
+  const init: RequestInit = { method: request.method, headers };
   if (!["GET", "HEAD"].includes(request.method)) {
-    init.body = contentType.includes("json") ? await request.text() : undefined;
+    const text = await request.text();
+    if (text) init.body = text;
   }
 
   try {
@@ -41,8 +42,8 @@ async function forward(
   }
 }
 
-export const GET     = forward;
-export const POST    = forward;
-export const PUT     = forward;
-export const PATCH   = forward;
-export const DELETE  = forward;
+export const GET    = forward;
+export const POST   = forward;
+export const PUT    = forward;
+export const PATCH  = forward;
+export const DELETE = forward;

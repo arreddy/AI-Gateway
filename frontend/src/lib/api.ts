@@ -9,11 +9,15 @@ const BASE = {
   observability: "/api/proxy/observability",
 };
 
-async function req<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, {
-    headers: { "Content-Type": "application/json", ...init?.headers },
-    ...init,
-  });
+import { getApiKey } from "./apiKey";
+
+async function req<T>(url: string, init?: RequestInit, auth = false): Promise<T> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (auth) {
+    const key = getApiKey();
+    if (key) headers["Authorization"] = `Bearer ${key}`;
+  }
+  const res = await fetch(url, { headers: { ...headers, ...(init?.headers ?? {}) }, ...init });
   if (!res.ok) {
     const text = await res.text().catch(() => res.statusText);
     throw new Error(`${res.status} ${text}`);
@@ -21,13 +25,18 @@ async function req<T>(url: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+// Gateway calls require an API key (enforced by AuthInterceptor)
+function greq<T>(url: string, init?: RequestInit) {
+  return req<T>(url, init, true);
+}
+
 // ── Health ────────────────────────────────────────────────────────────────────
 
 export const health = {
-  gateway:     () => req<{ status: string }>(`${BASE.gateway}/v1/health`),
-  auth:        () => req<{ status: string }>(`${BASE.auth}/v1/auth/health`),
-  routing:     () => req<{ status: string }>(`${BASE.routing}/v1/routing/health`),
-  governance:  () => req<{ status: string }>(`${BASE.governance}/v1/governance/health`),
+  gateway:       () => greq<{ status: string }>(`${BASE.gateway}/v1/health`),
+  auth:          () => req<{ status: string }>(`${BASE.auth}/v1/auth/health`),
+  routing:       () => req<{ status: string }>(`${BASE.routing}/v1/routing/health`),
+  governance:    () => req<{ status: string }>(`${BASE.governance}/v1/governance/health`),
   observability: () => req<{ status: string }>(`${BASE.observability}/v1/observability/health`),
 };
 
@@ -77,16 +86,16 @@ export interface McpTool {
 
 export const mcp = {
   listServers: () =>
-    req<{ servers: McpServer[]; count: number }>(`${BASE.gateway}/v1/mcp/servers`),
+    greq<{ servers: McpServer[]; count: number }>(`${BASE.gateway}/v1/mcp/servers`),
   register: (body: Record<string, unknown>) =>
-    req<McpServer>(`${BASE.gateway}/v1/mcp/servers`, { method: "POST", body: JSON.stringify(body) }),
+    greq<McpServer>(`${BASE.gateway}/v1/mcp/servers`, { method: "POST", body: JSON.stringify(body) }),
   deregister: (id: string) =>
-    req<void>(`${BASE.gateway}/v1/mcp/servers/${id}`, { method: "DELETE" }),
+    greq<void>(`${BASE.gateway}/v1/mcp/servers/${id}`, { method: "DELETE" }),
   discover: (id: string) =>
-    req<{ tools: McpTool[]; count: number }>(`${BASE.gateway}/v1/mcp/servers/${id}/discover`,
+    greq<{ tools: McpTool[]; count: number }>(`${BASE.gateway}/v1/mcp/servers/${id}/discover`,
       { method: "POST" }),
   listTools: () =>
-    req<{ tools: McpTool[]; count: number }>(`${BASE.gateway}/v1/mcp/tools`),
+    greq<{ tools: McpTool[]; count: number }>(`${BASE.gateway}/v1/mcp/tools`),
 };
 
 // ── A2A Agents ────────────────────────────────────────────────────────────────
@@ -98,15 +107,15 @@ export interface A2aAgent {
 
 export const a2a = {
   list: () =>
-    req<{ agents: A2aAgent[]; count: number }>(`${BASE.gateway}/v1/a2a/agents`),
+    greq<{ agents: A2aAgent[]; count: number }>(`${BASE.gateway}/v1/a2a/agents`),
   register: (body: Record<string, unknown>) =>
-    req<A2aAgent>(`${BASE.gateway}/v1/a2a/agents`, { method: "POST", body: JSON.stringify(body) }),
+    greq<A2aAgent>(`${BASE.gateway}/v1/a2a/agents`, { method: "POST", body: JSON.stringify(body) }),
   deregister: (id: string) =>
-    req<void>(`${BASE.gateway}/v1/a2a/agents/${id}`, { method: "DELETE" }),
+    greq<void>(`${BASE.gateway}/v1/a2a/agents/${id}`, { method: "DELETE" }),
   discover: (id: string) =>
-    req<A2aAgent>(`${BASE.gateway}/v1/a2a/agents/${id}/discover`, { method: "POST" }),
+    greq<A2aAgent>(`${BASE.gateway}/v1/a2a/agents/${id}/discover`, { method: "POST" }),
   sendTask: (id: string, message: string) =>
-    req<unknown>(`${BASE.gateway}/v1/a2a/agents/${id}/tasks`,
+    greq<unknown>(`${BASE.gateway}/v1/a2a/agents/${id}/tasks`,
       { method: "POST", body: JSON.stringify({ message }) }),
 };
 
@@ -161,5 +170,5 @@ export const observability = {
 export interface Model { id: string; owned_by: string; provider: string; }
 
 export const models = {
-  list: () => req<{ data: Model[] }>(`${BASE.gateway}/v1/models`),
+  list: () => greq<{ data: Model[] }>(`${BASE.gateway}/v1/models`),
 };

@@ -160,8 +160,9 @@ services:
       SPRING_DATA_REDIS_PORT: 6379
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
       JWT_SECRET: ${JWT_SECRET:-astra-gateway-dev-secret-key-minimum-256-bits-long}
-      AUTH_ENABLED: ${AUTH_ENABLED:-true}
+      AUTH_ENABLED: ${AUTH_ENABLED:-false}
       AUTH_URL: http://auth-service:8083
       ROUTING_URL: http://routing-engine:8084
       OBSERVABILITY_URL: http://observability-service:8086

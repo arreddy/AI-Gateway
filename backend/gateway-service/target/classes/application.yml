@@ -76,6 +76,9 @@ providers:
   openai:
     base-url: https://api.openai.com
     api-key: ${OPENAI_API_KEY:}
+  google:
+    base-url: https://generativelanguage.googleapis.com/v1beta/openai
+    api-key: ${GOOGLE_API_KEY:}
 
 services:
   observability:

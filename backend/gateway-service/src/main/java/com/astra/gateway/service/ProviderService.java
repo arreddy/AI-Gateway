@@ -33,6 +33,12 @@ public class ProviderService {
     @Value("${providers.openai.base-url:https://api.openai.com}")
     private String openaiBaseUrl;
 
+    @Value("${providers.google.api-key:${GOOGLE_API_KEY:}}")
+    private String googleApiKey;
+
+    @Value("${providers.google.base-url:https://generativelanguage.googleapis.com/v1beta/openai}")
+    private String googleBaseUrl;
+
     @Autowired
     private WebClient.Builder webClientBuilder;
 
@@ -58,6 +64,18 @@ public class ProviderService {
                 modelEntry("gpt-4o", "openai", "OpenAI"),
                 modelEntry("gpt-4o-mini", "openai", "OpenAI"),
                 modelEntry("gpt-3.5-turbo", "openai", "OpenAI")
+            ));
+        }
+
+        if (!googleApiKey.isEmpty()) {
+            models.addAll(List.of(
+                modelEntry("gemini-3.1-pro-preview", "google", "Google"),
+                modelEntry("gemini-3.1-flash-lite", "google", "Google"),
+                modelEntry("gemini-3-pro-preview", "google", "Google"),
+                modelEntry("gemini-3-flash-preview", "google", "Google"),
+                modelEntry("gemini-2.5-pro", "google", "Google"),
+                modelEntry("gemini-2.5-flash", "google", "Google"),
+                modelEntry("gemini-2.0-flash-lite", "google", "Google")
             ));
         }
 
@@ -91,8 +109,9 @@ public class ProviderService {
 
         JsonNode response = switch (provider) {
             case "anthropic" -> callAnthropic(request, model);
-            case "openai" -> callOpenAI(request, model);
-            default -> fallbackResponse(model);
+            case "openai"    -> callOpenAI(request, model);
+            case "google"    -> callGoogle(request, model);
+            default          -> fallbackResponse(model);
         };
 
         if (useCache && !response.has("error")) {
@@ -106,6 +125,7 @@ public class ProviderService {
         if (model == null) return "anthropic";
         if (model.startsWith("claude")) return "anthropic";
         if (model.startsWith("gpt") || model.startsWith("o1") || model.startsWith("o3")) return "openai";
+        if (model.startsWith("gemini")) return "google";
         return "anthropic";
     }
 
@@ -161,6 +181,26 @@ public class ProviderService {
             .post()
             .uri(openaiBaseUrl + "/v1/chat/completions")
             .header(HttpHeaders.AUTHORIZATION, "Bearer " + openaiApiKey)
+            .contentType(MediaType.APPLICATION_JSON)
+            .bodyValue(objectMapper.writeValueAsString(request))
+            .retrieve()
+            .bodyToMono(String.class)
+            .block(Duration.ofSeconds(60));
+
+        return objectMapper.readTree(responseBody);
+    }
+
+    private JsonNode callGoogle(JsonNode request, String model) throws Exception {
+        if (googleApiKey == null || googleApiKey.isEmpty()) {
+            log.warn("Google API key not configured");
+            return fallbackResponse(model);
+        }
+
+        // Google's OpenAI-compatible endpoint accepts the same request format
+        String responseBody = webClientBuilder.build()
+            .post()
+            .uri(googleBaseUrl + "/chat/completions")
+            .header(HttpHeaders.AUTHORIZATION, "Bearer " + googleApiKey)
             .contentType(MediaType.APPLICATION_JSON)
             .bodyValue(objectMapper.writeValueAsString(request))
             .retrieve()
