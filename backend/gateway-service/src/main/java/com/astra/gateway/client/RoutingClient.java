@@ -7,7 +7,6 @@ import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
 
-import java.util.List;
 import java.util.Map;
 
 /**
@@ -59,25 +58,4 @@ public class RoutingClient {
         return providerService.resolveProvider(model);
     }
 
-    /**
-     * Returns the full fallback chain for retry logic.
-     * Falls back to a single-entry list on error.
-     */
-    @SuppressWarnings("unchecked")
-    public List<String> fallbackChain(String model, String strategy) {
-        try {
-            String url = services.getRouting().getUrl() + "/v1/routing/decide";
-            Map<String, String> body = Map.of(
-                "model", model,
-                "strategy", strategy != null ? strategy : "latency");
-
-            Map<String, Object> response = http.postForObject(url, body, Map.class);
-            if (response != null && response.containsKey("fallback_chain")) {
-                List<Map<String, Object>> chain =
-                    (List<Map<String, Object>>) response.get("fallback_chain");
-                return chain.stream().map(e -> e.get("provider").toString()).toList();
-            }
-        } catch (Exception ignored) {}
-        return List.of(providerService.resolveProvider(model));
-    }
 }

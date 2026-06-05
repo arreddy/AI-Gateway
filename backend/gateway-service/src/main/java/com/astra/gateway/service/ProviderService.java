@@ -102,12 +102,6 @@ public class ProviderService {
         return response;
     }
 
-    /** Convenience overload — resolves provider locally (used when routing-engine is skipped). */
-    public JsonNode chatCompletion(JsonNode request) throws Exception {
-        String model = request.has("model") ? request.get("model").asText() : "claude-sonnet-4-6";
-        return chatCompletion(request, resolveProvider(model));
-    }
-
     public String resolveProvider(String model) {
         if (model == null) return "anthropic";
         if (model.startsWith("claude")) return "anthropic";

@@ -73,16 +73,6 @@ public class RoutingService {
         return result;
     }
 
-    public void recordProviderCall(String provider, long latencyMs, boolean success) {
-        runtimeStats.compute(provider, (k, existing) -> {
-            RuntimeStats s = existing != null ? existing : new RuntimeStats();
-            s.requestCount++;
-            s.totalLatencyMs += latencyMs;
-            if (!success) s.errorCount++;
-            return s;
-        });
-    }
-
     private String resolveProvider(String model) {
         if (model == null) return "anthropic";
         if (model.startsWith("claude")) return "anthropic";

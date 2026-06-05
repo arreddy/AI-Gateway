@@ -65,11 +65,6 @@ public class MetricsService {
         log.debug("Recorded: provider={} model={} latency={}ms tokens={}", provider, model, latencyMs, totalTokens);
     }
 
-    /** Backward-compatible overload used by existing callers. */
-    public void record(String requestId, String provider, long latencyMs, int tokens) {
-        record(requestId, provider, null, latencyMs, tokens, 0, 0.0, "success", null);
-    }
-
     public Map<String, Object> getAggregated() {
         Map<String, Object> byProvider = new LinkedHashMap<>();
         providerStats.forEach((provider, stats) -> {
