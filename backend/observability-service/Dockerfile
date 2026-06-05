@@ -7,8 +7,6 @@ COPY auth-service/pom.xml           ./auth-service/pom.xml
 COPY routing-engine/pom.xml         ./routing-engine/pom.xml
 COPY governance-engine/pom.xml      ./governance-engine/pom.xml
 COPY observability-service/pom.xml  ./observability-service/pom.xml
-COPY a2a-service/pom.xml            ./a2a-service/pom.xml
-COPY mcp-service/pom.xml            ./mcp-service/pom.xml
 
 COPY observability-service/src ./observability-service/src
 

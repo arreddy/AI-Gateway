@@ -1,18 +1,20 @@
 spring:
   application:
     name: auth-service
-  server:
-    port: 8083
 
   datasource:
     url: jdbc:postgresql://postgres:5432/astra
     username: astra
     password: astra_dev_password
     driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
 
   jpa:
     hibernate:
-      ddl-auto: validate
+      ddl-auto: none
+    open-in-view: false
 
   data:
     redis:
@@ -22,17 +24,22 @@ spring:
   cache:
     type: redis
 
+server:
+  port: 8083
+  shutdown: graceful
+
 logging:
   level:
     root: INFO
-    com.astra: DEBUG
-
-app:
-  jwt:
-    secret: ${JWT_SECRET:astra-gateway-dev-secret-key-minimum-256-bits-long-change-in-production}
+    "[com.astra]": DEBUG
 
 management:
   endpoints:
     web:
       exposure:
         include: health,metrics
+
+auth:
+  jwt:
+    secret: ${JWT_SECRET:astra-gateway-dev-secret-key-minimum-256-bits-long-change-in-production}
+    expiration-ms: 86400000

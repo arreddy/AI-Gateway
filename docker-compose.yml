@@ -1,0 +1,231 @@
+version: "3.9"
+
+# ============================================================================
+# Astra Gateway — Local Development Stack
+# ============================================================================
+# Start: docker compose up -d
+# Stop:  docker compose down
+# Logs:  docker compose logs -f <service>
+#
+# Exposed ports (host → container):
+#   PostgreSQL   5432
+#   Redis        6379
+#   ClickHouse   8123 (HTTP), 9000 (native)
+#   Prometheus   9090
+#   Grafana      3000
+#   gateway      8080
+#   auth         8083
+#   routing      8084
+#   governance   8085
+#   observability 8086
+# ============================================================================
+
+networks:
+  astra-net:
+    driver: bridge
+
+volumes:
+  postgres-data:
+  redis-data:
+  clickhouse-data:
+  prometheus-data:
+  grafana-data:
+
+# ============================================================================
+# INFRASTRUCTURE
+# ============================================================================
+
+services:
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: astra-postgres
+    environment:
+      POSTGRES_DB: astra
+      POSTGRES_USER: astra
+      POSTGRES_PASSWORD: astra_dev_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    networks:
+      - astra-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U astra"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: astra-redis
+    command: redis-server --save 60 1 --loglevel warning
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - astra-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24-alpine
+    container_name: astra-clickhouse
+    environment:
+      CLICKHOUSE_DB: astra
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: ""
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    ports:
+      - "8123:8123"   # HTTP interface
+      - "9000:9000"   # Native TCP interface
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+      - ./database/clickhouse-schema.sql:/docker-entrypoint-initdb.d/clickhouse-schema.sql:ro
+    networks:
+      - astra-net
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8123/ping || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    container_name: astra-prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=30d
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./infra/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    networks:
+      - astra-net
+    depends_on:
+      - observability-service
+
+  grafana:
+    image: grafana/grafana:11.0.0
+    container_name: astra-grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: astra_dev
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+    networks:
+      - astra-net
+    depends_on:
+      - prometheus
+      - clickhouse
+
+# ============================================================================
+# APPLICATION SERVICES
+# ============================================================================
+
+  gateway-service:
+    build:
+      context: ./backend/gateway-service
+      dockerfile: Dockerfile
+    container_name: astra-gateway
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/astra
+      SPRING_DATA_REDIS_HOST: redis
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    ports:
+      - "8080:8080"
+    networks:
+      - astra-net
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: on-failure
+
+  auth-service:
+    build:
+      context: ./backend/auth-service
+      dockerfile: Dockerfile
+    container_name: astra-auth
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/astra
+      SPRING_DATA_REDIS_HOST: redis
+      JWT_SECRET: ${JWT_SECRET:-astra-gateway-dev-secret-key-minimum-256-bits-long-change-in-production}
+    ports:
+      - "8083:8083"
+    networks:
+      - astra-net
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: on-failure
+
+  routing-engine:
+    build:
+      context: ./backend/routing-engine
+      dockerfile: Dockerfile
+    container_name: astra-routing
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/astra
+      SPRING_DATA_REDIS_HOST: redis
+    ports:
+      - "8084:8084"
+    networks:
+      - astra-net
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: on-failure
+
+  governance-engine:
+    build:
+      context: ./backend/governance-engine
+      dockerfile: Dockerfile
+    container_name: astra-governance
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/astra
+    ports:
+      - "8085:8085"
+    networks:
+      - astra-net
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: on-failure
+
+  observability-service:
+    build:
+      context: ./backend/observability-service
+      dockerfile: Dockerfile
+    container_name: astra-observability
+    environment:
+      CLICKHOUSE_URL: http://clickhouse:8123
+    ports:
+      - "8086:8086"
+    networks:
+      - astra-net
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    restart: on-failure

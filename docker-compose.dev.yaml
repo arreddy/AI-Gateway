@@ -1,35 +1,37 @@
-version: '3.9'
+# Astra Gateway — Development Stack
+# Usage:
+#   docker compose -f docker-compose.dev.yaml build
+#   docker compose -f docker-compose.dev.yaml up -d
+#   docker compose -f docker-compose.dev.yaml logs -f <service>
+#   docker compose -f docker-compose.dev.yaml down -v
 
 services:
-  # PostgreSQL Database
+
+  # ============================================================================
+  # INFRASTRUCTURE
+  # ============================================================================
+
   postgres:
-    image: postgres:15-alpine
+    image: postgres:16-alpine
     container_name: astra-postgres
     environment:
       POSTGRES_DB: astra
       POSTGRES_USER: astra
       POSTGRES_PASSWORD: astra_dev_password
-      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --lc-collate=C --lc-ctype=C"
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    command: ["postgres", "-c", "max_connections=200", "-c", "shared_buffers=256MB"]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U astra"]
       interval: 10s
       timeout: 5s
       retries: 5
     networks:
-      - astra-network
-    command:
-      - "postgres"
-      - "-c"
-      - "max_connections=200"
-      - "-c"
-      - "shared_buffers=256MB"
+      - astra-net
 
-  # Redis Cache
   redis:
     image: redis:7-alpine
     container_name: astra-redis
@@ -37,203 +39,132 @@ services:
       - "6379:6379"
     volumes:
       - redis_data:/data
+    command: ["redis-server", "--maxmemory", "512mb", "--maxmemory-policy", "allkeys-lru", "--save", "900 1"]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
     networks:
-      - astra-network
-    command:
-      - "redis-server"
-      - "--maxmemory"
-      - "512mb"
-      - "--maxmemory-policy"
-      - "allkeys-lru"
-      - "--save"
-      - "900 1"
+      - astra-net
 
-  # Apache Kafka
-  zookeeper:
-    image: confluentinc/cp-zookeeper:7.5.0
-    container_name: astra-zookeeper
-    environment:
-      ZOOKEEPER_CLIENT_PORT: 2181
-      ZOOKEEPER_SYNC_LIMIT: 2
-      ZOOKEEPER_INIT_LIMIT: 5
-    ports:
-      - "2181:2181"
-    networks:
-      - astra-network
-    healthcheck:
-      test: ["CMD", "cub", "zk-ready", "localhost:2181", "5"]
-      interval: 10s
-      timeout: 10s
-      retries: 10
-      start_period: 20s
-
-  kafka:
-    image: confluentinc/cp-kafka:7.5.0
-    container_name: astra-kafka
-    depends_on:
-      zookeeper:
-        condition: service_healthy
-    environment:
-      KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://kafka:9092
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
-      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
-      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
-      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
-    ports:
-      - "9092:9092"
-    networks:
-      - astra-network
-    healthcheck:
-      test: ["CMD", "cub", "kafka-ready", "-b", "localhost:9092", "1", "5"]
-      interval: 10s
-      timeout: 10s
-      retries: 10
-      start_period: 30s
-
-  # ClickHouse for Analytics
   clickhouse:
-    image: clickhouse/clickhouse-server:latest
+    image: clickhouse/clickhouse-server:24-alpine
     container_name: astra-clickhouse
-    environment:
-      CLICKHOUSE_DB: astra
-      CLICKHOUSE_USER: astra
-      CLICKHOUSE_PASSWORD: astra_dev_password
+    # No CLICKHOUSE_DB / CLICKHOUSE_USER env vars — they trigger the double-start
+    # pre-init phase which causes port conflicts on macOS Docker Desktop.
+    # Database and schema are created by the clickhouse-init service below.
     ports:
       - "8123:8123"
       - "9000:9000"
     volumes:
       - clickhouse_data:/var/lib/clickhouse
-    networks:
-      - astra-network
+      # No init scripts here — avoids the double-start port conflict on macOS Docker Desktop.
+      # Schema is applied by the clickhouse-init service below once ClickHouse is healthy.
+      - ./infra/clickhouse/config.d/listen.xml:/etc/clickhouse-server/config.d/listen.xml:ro
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O - http://localhost:8123/ping || exit 1"]
-      interval: 10s
-      timeout: 10s
-      retries: 10
-      start_period: 30s
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8123/ping || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    networks:
+      - astra-net
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
 
-  # Prometheus for Metrics
-  prometheus:
-    image: prom/prometheus:latest
-    container_name: astra-prometheus
+  # Applies the ClickHouse schema once the server is healthy, then exits.
+  clickhouse-init:
+    image: clickhouse/clickhouse-server:24-alpine
+    container_name: astra-clickhouse-init
+    entrypoint: >
+      sh -c "
+        clickhouse-client --host clickhouse --port 9000 --query 'CREATE DATABASE IF NOT EXISTS astra' &&
+        clickhouse-client --host clickhouse --port 9000 --database astra --multiquery < /clickhouse-schema.sql &&
+        echo 'ClickHouse schema applied successfully'
+      "
     volumes:
-      - ./infrastructure/prometheus:/etc/prometheus
-      - prometheus_data:/prometheus
+      - ./database/clickhouse-schema.sql:/clickhouse-schema.sql:ro
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    networks:
+      - astra-net
+    restart: on-failure
+
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    container_name: astra-prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=7d
     ports:
       - "9090:9090"
+    volumes:
+      - ./infra/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
     networks:
-      - astra-network
-    command:
-      - '--config.file=/etc/prometheus/prometheus.yml'
-      - '--storage.tsdb.path=/prometheus'
-      - '--storage.tsdb.retention.time=7d'
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9090/-/healthy"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      - astra-net
 
-  # Grafana for Dashboards
   grafana:
-    image: grafana/grafana:latest
+    image: grafana/grafana:11.0.0
     container_name: astra-grafana
     environment:
-      GF_SECURITY_ADMIN_PASSWORD: admin
-      GF_USERS_ALLOW_SIGN_UP: 'false'
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: astra_dev
+      GF_USERS_ALLOW_SIGN_UP: "false"
     ports:
       - "3000:3000"
     volumes:
       - grafana_data:/var/lib/grafana
-      - ./infrastructure/grafana/provisioning:/etc/grafana/provisioning
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
     depends_on:
       - prometheus
+      - clickhouse
     networks:
-      - astra-network
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      - astra-net
 
-  # Jaeger for Distributed Tracing
   jaeger:
-    image: jaegertracing/all-in-one:latest
+    image: jaegertracing/all-in-one:1.57
     container_name: astra-jaeger
     environment:
-      COLLECTOR_ZIPKIN_HOST_PORT: :9411
-      COLLECTOR_OTLP_ENABLED: 'true'
+      COLLECTOR_OTLP_ENABLED: "true"
     ports:
-      - "16686:16686"  # Jaeger UI
-      - "14268:14268"  # Collector
-      - "6831:6831/udp" # Thrift compact
-      - "4317:4317"    # OTLP gRPC
+      - "16686:16686"   # Jaeger UI
+      - "4317:4317"     # OTLP gRPC
     networks:
-      - astra-network
+      - astra-net
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:14269/"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:14269/"]
       interval: 10s
       timeout: 5s
       retries: 5
 
-  # Loki for Logging
-  loki:
-    image: grafana/loki:latest
-    container_name: astra-loki
-    ports:
-      - "3100:3100"
-    volumes:
-      - ./infrastructure/loki:/etc/loki
-      - loki_data:/loki
-    networks:
-      - astra-network
-    command: -config.file=/etc/loki/loki.yml
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3100/ready"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+  # ============================================================================
+  # APPLICATION SERVICES  (build context = ./backend, dockerfile per-module)
+  # ============================================================================
 
-  # Promtail for Log Collection
-  promtail:
-    image: grafana/promtail:latest
-    container_name: astra-promtail
-    volumes:
-      - ./infrastructure/promtail:/etc/promtail
-      - /var/lib/docker/containers:/var/lib/docker/containers:ro
-      - /var/run/docker.sock:/var/run/docker.sock
-    networks:
-      - astra-network
-    command: -config.file=/etc/promtail/promtail.yml
-    depends_on:
-      - loki
-
-  # Gateway Service (Java/Spring Boot)
   gateway-service:
     build:
       context: ./backend
       dockerfile: gateway-service/Dockerfile
     container_name: astra-gateway
     environment:
-      SPRING_APPLICATION_NAME: gateway-service
-      SERVER_PORT: 8080
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/astra
       SPRING_DATASOURCE_USERNAME: astra
       SPRING_DATASOURCE_PASSWORD: astra_dev_password
       SPRING_DATA_REDIS_HOST: redis
       SPRING_DATA_REDIS_PORT: 6379
-      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
-      LOGGING_LEVEL_ROOT: INFO
-      LOGGING_LEVEL_COM_ASTRA: DEBUG
-      JWT_SECRET: dev-secret-key-change-in-production
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      JWT_SECRET: ${JWT_SECRET:-astra-gateway-dev-secret-key-minimum-256-bits-long}
+      AUTH_ENABLED: ${AUTH_ENABLED:-true}
+      AUTH_URL: http://auth-service:8083
+      ROUTING_URL: http://routing-engine:8084
+      OBSERVABILITY_URL: http://observability-service:8086
     ports:
       - "8080:8080"
     depends_on:
@@ -241,33 +172,27 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      kafka:
-        condition: service_healthy
     networks:
-      - astra-network
+      - astra-net
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8080/v1/health"]
       interval: 10s
       timeout: 5s
       retries: 5
+    restart: on-failure
 
-  # Auth Service (Java/Spring Boot)
   auth-service:
     build:
       context: ./backend
       dockerfile: auth-service/Dockerfile
-    container_name: astra-auth-service
+    container_name: astra-auth
     environment:
-      SPRING_APPLICATION_NAME: auth-service
-      SERVER_PORT: 8083
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/astra
       SPRING_DATASOURCE_USERNAME: astra
       SPRING_DATASOURCE_PASSWORD: astra_dev_password
       SPRING_DATA_REDIS_HOST: redis
       SPRING_DATA_REDIS_PORT: 6379
-      LOGGING_LEVEL_ROOT: INFO
-      LOGGING_LEVEL_COM_ASTRA: DEBUG
-      JWT_SECRET: dev-secret-key-change-in-production
+      JWT_SECRET: ${JWT_SECRET:-astra-gateway-dev-secret-key-minimum-256-bits-long}
     ports:
       - "8083:8083"
     depends_on:
@@ -276,30 +201,25 @@ services:
       redis:
         condition: service_healthy
     networks:
-      - astra-network
+      - astra-net
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8083/actuator/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8083/v1/auth/health"]
       interval: 10s
       timeout: 5s
       retries: 5
+    restart: on-failure
 
-  # Routing Engine (Java/Spring Boot)
   routing-engine:
     build:
       context: ./backend
       dockerfile: routing-engine/Dockerfile
-    container_name: astra-routing-engine
+    container_name: astra-routing
     environment:
-      SPRING_APPLICATION_NAME: routing-engine
-      SERVER_PORT: 8084
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/astra
       SPRING_DATASOURCE_USERNAME: astra
       SPRING_DATASOURCE_PASSWORD: astra_dev_password
       SPRING_DATA_REDIS_HOST: redis
       SPRING_DATA_REDIS_PORT: 6379
-      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
-      LOGGING_LEVEL_ROOT: INFO
-      LOGGING_LEVEL_COM_ASTRA: DEBUG
     ports:
       - "8084:8084"
     depends_on:
@@ -307,217 +227,66 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      kafka:
-        condition: service_healthy
     networks:
-      - astra-network
+      - astra-net
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8084/actuator/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8084/v1/routing/health"]
       interval: 10s
       timeout: 5s
       retries: 5
+    restart: on-failure
 
-  # Governance Engine (Java/Spring Boot)
   governance-engine:
     build:
       context: ./backend
       dockerfile: governance-engine/Dockerfile
-    container_name: astra-governance-engine
+    container_name: astra-governance
     environment:
-      SPRING_APPLICATION_NAME: governance-engine
-      SERVER_PORT: 8085
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/astra
       SPRING_DATASOURCE_USERNAME: astra
       SPRING_DATASOURCE_PASSWORD: astra_dev_password
-      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
-      LOGGING_LEVEL_ROOT: INFO
-      LOGGING_LEVEL_COM_ASTRA: DEBUG
     ports:
       - "8085:8085"
     depends_on:
       postgres:
         condition: service_healthy
-      kafka:
-        condition: service_healthy
     networks:
-      - astra-network
+      - astra-net
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8085/actuator/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8085/v1/governance/health"]
       interval: 10s
       timeout: 5s
       retries: 5
+    restart: on-failure
 
-  # Observability Service (Java/Spring Boot)
   observability-service:
     build:
       context: ./backend
       dockerfile: observability-service/Dockerfile
-    container_name: astra-observability-service
+    container_name: astra-observability
     environment:
-      SPRING_APPLICATION_NAME: observability-service
-      SERVER_PORT: 8086
-      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
-      LOGGING_LEVEL_ROOT: INFO
-      LOGGING_LEVEL_COM_ASTRA: DEBUG
+      CLICKHOUSE_URL: http://clickhouse:8123
     ports:
       - "8086:8086"
     depends_on:
-      kafka:
-        condition: service_healthy
       clickhouse:
         condition: service_healthy
     networks:
-      - astra-network
+      - astra-net
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8086/actuator/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8086/v1/observability/health"]
       interval: 10s
       timeout: 5s
       retries: 5
-
-  # A2A Service (Agent-to-Agent Communication - Java/Spring Boot)
-  a2a-service:
-    build:
-      context: ./backend
-      dockerfile: a2a-service/Dockerfile
-    container_name: astra-a2a-service
-    environment:
-      SPRING_APPLICATION_NAME: a2a-service
-      SERVER_PORT: 8082
-      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/astra
-      SPRING_DATASOURCE_USERNAME: astra
-      SPRING_DATASOURCE_PASSWORD: astra_dev_password
-      SPRING_DATA_REDIS_HOST: redis
-      SPRING_DATA_REDIS_PORT: 6379
-      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
-      LOGGING_LEVEL_ROOT: INFO
-      LOGGING_LEVEL_COM_ASTRA: DEBUG
-    ports:
-      - "8082:8082"
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      kafka:
-        condition: service_healthy
-    networks:
-      - astra-network
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8082/actuator/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  # MCP Service (Model Context Protocol - Java/Spring Boot)
-  mcp-service:
-    build:
-      context: ./backend
-      dockerfile: mcp-service/Dockerfile
-    container_name: astra-mcp-service
-    environment:
-      SPRING_APPLICATION_NAME: mcp-service
-      SERVER_PORT: 8081
-      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/astra
-      SPRING_DATASOURCE_USERNAME: astra
-      SPRING_DATASOURCE_PASSWORD: astra_dev_password
-      LOGGING_LEVEL_ROOT: INFO
-      LOGGING_LEVEL_COM_ASTRA: DEBUG
-    ports:
-      - "8081:8081"
-    depends_on:
-      postgres:
-        condition: service_healthy
-    networks:
-      - astra-network
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8081/actuator/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  # Frontend (Next.js) — not yet implemented; uncomment once ./frontend exists
-  # frontend:
-  #   build:
-  #     context: ./frontend
-  #     dockerfile: Dockerfile
-  #   container_name: astra-frontend
-  #   environment:
-  #     NEXT_PUBLIC_API_URL: "http://localhost:8080"
-  #     NEXT_PUBLIC_GRAFANA_URL: "http://localhost:3000"
-  #   ports:
-  #     - "3001:3000"
-  #   depends_on:
-  #     - gateway-service
-  #   networks:
-  #     - astra-network
-  #   volumes:
-  #     - ./frontend:/app
-  #   command: npm run dev
+    restart: on-failure
 
 volumes:
   postgres_data:
-    driver: local
   redis_data:
-    driver: local
   clickhouse_data:
-    driver: local
   prometheus_data:
-    driver: local
   grafana_data:
-    driver: local
-  loki_data:
-    driver: local
 
 networks:
-  astra-network:
+  astra-net:
     driver: bridge
-
-# Usage:
-# 1. Build all services
-#    docker-compose build
-#
-# 2. Start all services
-#    docker-compose -f docker-compose.dev.yaml up -d
-#
-# 3. Verify all services are running
-#    docker-compose -f docker-compose.dev.yaml ps
-#
-# 4. View logs
-#    docker-compose -f docker-compose.dev.yaml logs -f
-#
-# 5. Stop all services
-#    docker-compose -f docker-compose.dev.yaml down
-#
-# Service endpoints:
-#   - Gateway Service: http://localhost:8080
-#   - Auth Service: http://localhost:8083
-#   - Routing Engine: http://localhost:8084
-#   - Governance Engine: http://localhost:8085
-#   - Observability Service: http://localhost:8086
-#   - A2A Service: http://localhost:8082
-#   - MCP Service: http://localhost:8081
-#   - Frontend: http://localhost:3001
-#   - Prometheus: http://localhost:9090
-#   - Grafana: http://localhost:3000
-#   - Jaeger UI: http://localhost:16686
-#   - Loki: http://localhost:3100
-#    docker-compose up -d
-#
-# 3. Access services
-#    - Gateway API: http://localhost:8080
-#    - Frontend: http://localhost:3000
-#    - Grafana: http://localhost:3000 (admin/admin)
-#    - Prometheus: http://localhost:9090
-#    - Jaeger: http://localhost:16686
-#    - ClickHouse: http://localhost:8123
-#
-# 4. Stop services
-#    docker-compose down
-#
-# 5. View logs
-#    docker-compose logs -f gateway-service
-#    docker-compose logs -f auth-service
-#
-# 6. Execute commands in container
-#    docker-compose exec postgres psql -U astra -d astra
-#    docker-compose exec redis redis-cli

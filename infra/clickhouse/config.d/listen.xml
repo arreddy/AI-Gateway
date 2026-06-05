@@ -1,0 +1,6 @@
+<clickhouse>
+    <!-- Bind only on IPv4 — avoids dual-stack port conflicts on macOS Docker Desktop -->
+    <listen_host>0.0.0.0</listen_host>
+    <!-- Continue even if a listen address fails (makes startup more robust) -->
+    <listen_try>1</listen_try>
+</clickhouse>

@@ -380,17 +380,13 @@ CREATE TABLE request_logs (
     policies_triggered TEXT[],
     
     -- Timing
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    
-    -- Partitioning support
-    month_year DATE GENERATED ALWAYS AS (DATE_TRUNC('month', created_at)::date) STORED
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX idx_request_logs_tenant_created ON request_logs(tenant_id, created_at DESC);
 CREATE INDEX idx_request_logs_request_id ON request_logs(request_id);
 CREATE INDEX idx_request_logs_api_key_id ON request_logs(api_key_id);
 CREATE INDEX idx_request_logs_status ON request_logs(status);
-CREATE INDEX idx_request_logs_month_year ON request_logs(month_year);
 
 -- Token Usage Summary (aggregated for billing)
 CREATE TABLE token_usage_summary (
@@ -762,13 +758,45 @@ $$ LANGUAGE plpgsql;
 -- ============================================================================
 
 -- Row-Level Security (RLS) for Multi-tenancy
-ALTER TABLE api_keys ENABLE ROW LEVEL SECURITY;
-ALTER TABLE users ENABLE ROW LEVEL SECURITY;
-ALTER TABLE request_logs ENABLE ROW LEVEL SECURITY;
+-- Row-Level Security is enforced at the application layer (auth-service validates tenant).
+-- Enable RLS on sensitive tables when a per-tenant DB role strategy is implemented.
+-- ALTER TABLE api_keys ENABLE ROW LEVEL SECURITY;
+-- ALTER TABLE users ENABLE ROW LEVEL SECURITY;
+-- ALTER TABLE request_logs ENABLE ROW LEVEL SECURITY;
 
--- API Key RLS Policy: Users can only see keys in their tenant
-CREATE POLICY tenant_isolation_api_keys ON api_keys
-    USING (tenant_id = (SELECT tenant_id FROM users WHERE id = current_user_id));
+-- ============================================================================
+-- MCP SERVER REGISTRY
+-- ============================================================================
+
+CREATE TABLE mcp_servers (
+    id             VARCHAR(36)  PRIMARY KEY,
+    name           VARCHAR(255) NOT NULL,
+    url            VARCHAR(500) NOT NULL UNIQUE,
+    description    TEXT,
+    status         VARCHAR(50)  DEFAULT 'registered',
+    registered_at  TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at     TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_mcp_servers_status ON mcp_servers(status);
+
+-- ============================================================================
+-- A2A AGENT REGISTRY
+-- ============================================================================
+
+CREATE TABLE a2a_agents (
+    id             VARCHAR(36)  PRIMARY KEY,
+    name           VARCHAR(255) NOT NULL,
+    url            VARCHAR(500) NOT NULL UNIQUE,
+    description    TEXT,
+    skills         JSONB        DEFAULT '[]',      -- ["skill-id-1", "skill-id-2"]
+    capabilities   JSONB        DEFAULT '[]',      -- ["streaming", "pushNotifications"]
+    status         VARCHAR(50)  DEFAULT 'registered',
+    registered_at  TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at     TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_a2a_agents_status ON a2a_agents(status);
 
 -- ============================================================================
 -- GRANTS & PERMISSIONS

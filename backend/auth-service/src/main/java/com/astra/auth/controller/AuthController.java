@@ -29,13 +29,7 @@ public class AuthController {
         return valid ? ResponseEntity.ok(result) : ResponseEntity.status(401).body(result);
     }
 
-    @PostMapping("/api-key/validate")
-    public ResponseEntity<Object> validateApiKey(@RequestHeader("Authorization") String apiKey) {
-        log.info("Validating API key");
-        Map<String, Object> result = authService.validateApiKey(apiKey);
-        boolean valid = Boolean.TRUE.equals(result.get("valid"));
-        return valid ? ResponseEntity.ok(result) : ResponseEntity.status(401).body(result);
-    }
+    // POST /v1/auth/api-key/validate is handled by ApiKeyController (DB-backed validation)
 
     static class TokenVerifyRequest {
         public String token;

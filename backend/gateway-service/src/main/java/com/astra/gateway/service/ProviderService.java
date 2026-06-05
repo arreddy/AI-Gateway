@@ -71,11 +71,11 @@ public class ProviderService {
         return models;
     }
 
-    public JsonNode chatCompletion(JsonNode request) throws Exception {
-        String model = request.has("model") ? request.get("model").asText() : "claude-sonnet-4-6";
+    /** Called by GatewayController with the provider already resolved by the routing-engine. */
+    public JsonNode chatCompletion(JsonNode request, String provider) throws Exception {
+        String model    = request.has("model") ? request.get("model").asText() : "claude-sonnet-4-6";
         String cacheKey = "completion:" + Math.abs(request.toString().hashCode());
 
-        // Check cache (skip for non-deterministic requests)
         boolean useCache = !request.has("stream") || !request.get("stream").asBoolean();
         if (useCache) {
             String cached = redisTemplate.opsForValue().get(cacheKey);
@@ -87,7 +87,6 @@ public class ProviderService {
             }
         }
 
-        String provider = resolveProvider(model);
         log.info("Routing to provider: {} for model: {}", provider, model);
 
         JsonNode response = switch (provider) {
@@ -101,6 +100,12 @@ public class ProviderService {
         }
 
         return response;
+    }
+
+    /** Convenience overload — resolves provider locally (used when routing-engine is skipped). */
+    public JsonNode chatCompletion(JsonNode request) throws Exception {
+        String model = request.has("model") ? request.get("model").asText() : "claude-sonnet-4-6";
+        return chatCompletion(request, resolveProvider(model));
     }
 
     public String resolveProvider(String model) {

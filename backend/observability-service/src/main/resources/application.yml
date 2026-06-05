@@ -1,27 +1,43 @@
 spring:
   application:
     name: observability-service
-  server:
-    port: 8086
 
-  kafka:
-    bootstrap-servers: kafka:29092
-    consumer:
-      group-id: observability-service
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
+      - org.springframework.boot.autoconfigure.orm.jpa.HibernateJpaAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.jpa.JpaRepositoriesAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.redis.RedisReactiveAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration
+      - org.springframework.boot.autoconfigure.kafka.KafkaAutoConfiguration
 
 logging:
   level:
     root: INFO
-    com.astra: DEBUG
+    "[com.astra]": DEBUG
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss} - %logger{36} - %msg%n"
+
+server:
+  port: 8086
+  shutdown: graceful
+
+clickhouse:
+  url: http://clickhouse:8123
+  database: astra
+  table: gateway_metrics
+  user: default
+  password: ""
+  flush-interval-ms: 5000
+  batch-size: 500
 
 management:
   endpoints:
     web:
       exposure:
         include: health,metrics,prometheus
-  metrics:
-    export:
-      prometheus:
+  prometheus:
+    metrics:
+      export:
         enabled: true
