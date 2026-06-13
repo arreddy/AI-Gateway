@@ -2,7 +2,7 @@ package com.astra.observability.service;
 
 import com.astra.observability.config.ClickHouseProperties;
 import com.astra.observability.model.GatewayMetricEvent;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -36,7 +36,7 @@ class ClickHousePublisherTest {
         props.setPassword("");
         props.setBatchSize(500);
 
-        publisher = new ClickHousePublisher(props, new ObjectMapper(), restTemplate);
+        publisher = new ClickHousePublisher(props, JsonMapper.builder().build(), restTemplate);
     }
 
     @Test
@@ -116,7 +116,7 @@ class ClickHousePublisherTest {
     void flush_withBasicAuth_setsAuthHeader() {
         props.setUser("admin");
         props.setPassword("secret");
-        publisher = new ClickHousePublisher(props, new ObjectMapper(), restTemplate);
+        publisher = new ClickHousePublisher(props, JsonMapper.builder().build(), restTemplate);
 
         when(restTemplate.postForEntity(anyString(), any(), eq(String.class)))
             .thenReturn(ResponseEntity.ok("Ok."));
@@ -133,7 +133,7 @@ class ClickHousePublisherTest {
     @Test
     void flush_respectsBatchSize() {
         props.setBatchSize(2);
-        publisher = new ClickHousePublisher(props, new ObjectMapper(), restTemplate);
+        publisher = new ClickHousePublisher(props, JsonMapper.builder().build(), restTemplate);
 
         when(restTemplate.postForEntity(anyString(), any(), eq(String.class)))
             .thenReturn(ResponseEntity.ok("Ok."));

@@ -2,7 +2,7 @@ package com.astra.observability.service;
 
 import com.astra.observability.config.ClickHouseProperties;
 import com.astra.observability.model.GatewayMetricEvent;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpEntity;
@@ -91,7 +91,7 @@ public class ClickHousePublisher {
         String query = String.format(
             "INSERT INTO %s.%s FORMAT JSONEachRow",
             props.getDatabase(), props.getTable());
-        return UriComponentsBuilder.fromHttpUrl(props.getUrl())
+        return UriComponentsBuilder.fromUriString(props.getUrl())
             .queryParam("query", query)
             .build().toUriString();
     }

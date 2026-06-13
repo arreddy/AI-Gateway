@@ -2,7 +2,7 @@ package com.astra.gateway.interceptor;
 
 import com.astra.gateway.client.AuthClient;
 import com.astra.gateway.client.AuthClient.ValidationResult;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;

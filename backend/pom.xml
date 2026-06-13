@@ -16,7 +16,7 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>3.3.0</version>
+        <version>4.0.5</version>
         <relativePath/>
     </parent>
 
@@ -33,12 +33,10 @@
         <maven.compiler.source>21</maven.compiler.source>
         <maven.compiler.target>21</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <!-- Spring Boot 3.3.0 manages: spring-data-redis, jedis, kafka-clients,
-             postgresql, micrometer, jakarta.validation — no overrides needed    -->
-        <spring-cloud.version>2023.0.0</spring-cloud.version>
-        <grpc.version>1.60.0</grpc.version>
-        <grpc-spring-boot-starter.version>2.15.0.RELEASE</grpc-spring-boot-starter.version>
+        <!-- Spring Boot 4.0.5 manages: spring-data-redis, jedis, kafka-clients,
+             postgresql, micrometer, jakarta.validation, jackson 3 — no overrides needed -->
         <jjwt.version>0.12.5</jjwt.version>
+        <spring-retry.version>2.0.13</spring-retry.version>
         <guava.version>33.1.0-jre</guava.version>
         <testcontainers.version>1.19.8</testcontainers.version>
         <!-- Lombok 1.18.38 is required for Java 25 (TypeTag API changed in JDK 25) -->
@@ -47,36 +45,6 @@
 
     <dependencyManagement>
         <dependencies>
-            <!-- Spring Cloud BOM -->
-            <dependency>
-                <groupId>org.springframework.cloud</groupId>
-                <artifactId>spring-cloud-dependencies</artifactId>
-                <version>${spring-cloud.version}</version>
-                <type>pom</type>
-                <scope>import</scope>
-            </dependency>
-
-            <!-- gRPC BOM -->
-            <dependency>
-                <groupId>io.grpc</groupId>
-                <artifactId>grpc-bom</artifactId>
-                <version>${grpc.version}</version>
-                <type>pom</type>
-                <scope>import</scope>
-            </dependency>
-
-            <!-- gRPC Spring Boot starters (not in Spring Boot BOM) -->
-            <dependency>
-                <groupId>net.devh</groupId>
-                <artifactId>grpc-server-spring-boot-starter</artifactId>
-                <version>${grpc-spring-boot-starter.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>net.devh</groupId>
-                <artifactId>grpc-client-spring-boot-starter</artifactId>
-                <version>${grpc-spring-boot-starter.version}</version>
-            </dependency>
-
             <!-- JWT (not in Spring Boot BOM) -->
             <dependency>
                 <groupId>io.jsonwebtoken</groupId>
@@ -91,9 +59,16 @@
             </dependency>
             <dependency>
                 <groupId>io.jsonwebtoken</groupId>
-                <artifactId>jjwt-jackson</artifactId>
+                <artifactId>jjwt-gson</artifactId>
                 <version>${jjwt.version}</version>
                 <scope>runtime</scope>
+            </dependency>
+
+            <!-- Spring Retry (not in Spring Boot 4.0.5 BOM) -->
+            <dependency>
+                <groupId>org.springframework.retry</groupId>
+                <artifactId>spring-retry</artifactId>
+                <version>${spring-retry.version}</version>
             </dependency>
 
             <!-- Guava (not in Spring Boot BOM) -->

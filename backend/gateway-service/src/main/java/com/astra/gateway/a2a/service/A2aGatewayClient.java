@@ -2,8 +2,8 @@ package com.astra.gateway.a2a.service;
 
 import com.astra.gateway.a2a.model.A2aAgentEntry;
 import com.astra.gateway.a2a.model.A2aTask;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpMethod;

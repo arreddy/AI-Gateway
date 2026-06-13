@@ -1,7 +1,7 @@
 package com.astra.gateway.interceptor;
 
 import com.astra.gateway.client.AuthClient;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.junit.jupiter.api.BeforeEach;
@@ -30,7 +30,7 @@ class AuthInterceptorTest {
 
     @BeforeEach
     void setUp() {
-        interceptor = new AuthInterceptor(authClient, new ObjectMapper());
+        interceptor = new AuthInterceptor(authClient, JsonMapper.builder().build());
     }
 
     @Test
