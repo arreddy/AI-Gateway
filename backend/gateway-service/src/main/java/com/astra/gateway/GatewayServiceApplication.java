@@ -8,7 +8,6 @@ import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
 import org.springframework.context.annotation.Bean;
 import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.scheduling.annotation.EnableScheduling;
-import org.springframework.web.client.RestTemplate;
 
 @SpringBootApplication
 @ConfigurationPropertiesScan
@@ -18,11 +17,6 @@ public class GatewayServiceApplication {
 
     public static void main(String[] args) {
         SpringApplication.run(GatewayServiceApplication.class, args);
-    }
-
-    @Bean
-    RestTemplate restTemplate() {
-        return new RestTemplate();
     }
 
     /** Warm in-memory caches from PostgreSQL on startup. */

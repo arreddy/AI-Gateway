@@ -10,7 +10,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestTemplate;
+import org.springframework.web.client.RestClient;
 import org.springframework.web.reactive.function.client.WebClient;
 
 import java.util.*;
@@ -35,6 +35,7 @@ public class McpGatewayClient {
     private static final int    CONNECT_TIMEOUT_MS  = 5_000;
 
     private final WebClient.Builder webClientBuilder;
+    private final RestClient.Builder restClientBuilder;
     private final ObjectMapper      objectMapper;
 
     // -------------------------------------------------------------------------
@@ -105,9 +106,9 @@ public class McpGatewayClient {
 
         // Build the full messages URL
         String messagesUrl = endpoint.startsWith("http") ? endpoint : serverUrl + endpoint;
-        RestTemplate restTemplate = buildRestTemplate();
+        RestClient restClient = buildRestClient();
 
-        return new McpSession(messagesUrl, pending, subscription, restTemplate, objectMapper);
+        return new McpSession(messagesUrl, pending, subscription, restClient, objectMapper);
     }
 
     private void handleSseEvent(ServerSentEvent<?> event,
@@ -143,11 +144,11 @@ public class McpGatewayClient {
         }
     }
 
-    private RestTemplate buildRestTemplate() {
+    private RestClient buildRestClient() {
         SimpleClientHttpRequestFactory f = new SimpleClientHttpRequestFactory();
         f.setConnectTimeout(CONNECT_TIMEOUT_MS);
         f.setReadTimeout(REQUEST_TIMEOUT_SEC * 1_000);
-        return new RestTemplate(f);
+        return restClientBuilder.requestFactory(f).build();
     }
 
     // -------------------------------------------------------------------------
@@ -159,17 +160,17 @@ public class McpGatewayClient {
         private final String messagesUrl;
         private final ConcurrentHashMap<String, CompletableFuture<JsonNode>> pending;
         private final reactor.core.Disposable subscription;
-        private final RestTemplate restTemplate;
+        private final RestClient restClient;
 
         McpSession(String messagesUrl,
                    ConcurrentHashMap<String, CompletableFuture<JsonNode>> pending,
                    reactor.core.Disposable subscription,
-                   RestTemplate restTemplate,
+                   RestClient restClient,
                    ObjectMapper objectMapper) {  // objectMapper kept in signature for callers
             this.messagesUrl  = messagesUrl;
             this.pending      = pending;
             this.subscription = subscription;
-            this.restTemplate = restTemplate;
+            this.restClient   = restClient;
         }
 
         void initialize() throws Exception {
@@ -182,7 +183,7 @@ public class McpGatewayClient {
             Map<String, Object> notif = new LinkedHashMap<>();
             notif.put("jsonrpc", "2.0");
             notif.put("method",  "initialized");
-            restTemplate.postForEntity(messagesUrl, notif, Void.class);
+            restClient.post().uri(messagesUrl).body(notif).retrieve().toBodilessEntity();
         }
 
         List<McpToolDefinition> listTools(String serverId, String serverUrl) throws Exception {
@@ -223,7 +224,7 @@ public class McpGatewayClient {
             body.put("method",  method);
             if (params != null) body.put("params", params);
 
-            restTemplate.postForEntity(messagesUrl, body, Void.class);
+            restClient.post().uri(messagesUrl).body(body).retrieve().toBodilessEntity();
 
             try {
                 return future.get(REQUEST_TIMEOUT_SEC, TimeUnit.SECONDS);

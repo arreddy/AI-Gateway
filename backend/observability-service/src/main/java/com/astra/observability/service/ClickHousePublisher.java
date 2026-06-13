@@ -3,14 +3,11 @@ package com.astra.observability.service;
 import com.astra.observability.config.ClickHouseProperties;
 import com.astra.observability.model.GatewayMetricEvent;
 import tools.jackson.databind.ObjectMapper;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestTemplate;
+import org.springframework.web.client.RestClient;
 import org.springframework.web.util.UriComponentsBuilder;
 
 import java.util.ArrayList;
@@ -27,14 +24,19 @@ import java.util.concurrent.ConcurrentLinkedQueue;
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class ClickHousePublisher {
 
     private final ClickHouseProperties props;
     private final ObjectMapper objectMapper;
-    private final RestTemplate restTemplate;
+    private final RestClient restClient;
 
     private final ConcurrentLinkedQueue<GatewayMetricEvent> buffer = new ConcurrentLinkedQueue<>();
+
+    public ClickHousePublisher(ClickHouseProperties props, ObjectMapper objectMapper, RestClient.Builder restClientBuilder) {
+        this.props = props;
+        this.objectMapper = objectMapper;
+        this.restClient = restClientBuilder.build();
+    }
 
     /** Enqueue an event — called from MetricsService, never blocks the caller. */
     public void enqueue(GatewayMetricEvent event) {
@@ -62,13 +64,17 @@ public class ClickHousePublisher {
             String body = buildJsonEachRow(batch);
             String url = buildInsertUrl();
 
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.TEXT_PLAIN);
-            if (!props.getUser().equals("default") || !props.getPassword().isEmpty()) {
-                headers.setBasicAuth(props.getUser(), props.getPassword());
-            }
-
-            restTemplate.postForEntity(url, new HttpEntity<>(body, headers), String.class);
+            restClient.post()
+                .uri(url)
+                .contentType(MediaType.TEXT_PLAIN)
+                .headers(headers -> {
+                    if (!props.getUser().equals("default") || !props.getPassword().isEmpty()) {
+                        headers.setBasicAuth(props.getUser(), props.getPassword());
+                    }
+                })
+                .body(body)
+                .retrieve()
+                .toEntity(String.class);
             log.debug("Flushed {} metric events to ClickHouse", batch.size());
         } catch (Exception e) {
             log.warn("ClickHouse flush failed ({} events dropped): {}", batch.size(), e.getMessage());

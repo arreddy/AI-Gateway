@@ -6,7 +6,6 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.ParameterizedTypeReference;
-import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.retry.RetryCallback;
@@ -15,7 +14,7 @@ import org.springframework.retry.support.RetryTemplateBuilder;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.HttpServerErrorException;
 import org.springframework.web.client.ResourceAccessException;
-import org.springframework.web.client.RestTemplate;
+import org.springframework.web.client.RestClient;
 
 import java.util.*;
 import java.util.concurrent.TimeoutException;
@@ -43,11 +42,11 @@ public class A2aGatewayClient {
 
     private final ObjectMapper  objectMapper;
     private final RetryTemplate retryTemplate;
-    private final RestTemplate  http;
+    private final RestClient    http;
 
-    public A2aGatewayClient(ObjectMapper objectMapper) {
+    public A2aGatewayClient(ObjectMapper objectMapper, RestClient.Builder restClientBuilder) {
         this.objectMapper  = objectMapper;
-        this.http          = buildHttp();
+        this.http          = buildHttp(restClientBuilder);
         this.retryTemplate = new RetryTemplateBuilder()
             .maxAttempts(3)
             .exponentialBackoff(500, 2.0, 5_000)
@@ -67,10 +66,10 @@ public class A2aGatewayClient {
                     log.warn("Retrying agent card discovery for {} (attempt {})",
                         entry.getUrl(), ctx.getRetryCount() + 1);
                 }
-                ResponseEntity<Map<String, Object>> resp = http.exchange(
-                    entry.getUrl() + "/.well-known/agent.json",
-                    HttpMethod.GET, null,
-                    new ParameterizedTypeReference<>() {});
+                ResponseEntity<Map<String, Object>> resp = http.get()
+                    .uri(entry.getUrl() + "/.well-known/agent.json")
+                    .retrieve()
+                    .toEntity(new ParameterizedTypeReference<>() {});
                 return resp.getBody();
             });
 
@@ -162,7 +161,7 @@ public class A2aGatewayClient {
             body.put("id",      id);
             body.put("params",  params);
 
-            JsonNode response = http.postForObject(url, body, JsonNode.class);
+            JsonNode response = http.post().uri(url).body(body).retrieve().body(JsonNode.class);
             if (response == null) {
                 throw new IllegalStateException("Empty response from A2A agent: " + url);
             }
@@ -174,11 +173,11 @@ public class A2aGatewayClient {
         });
     }
 
-    private RestTemplate buildHttp() {
+    private RestClient buildHttp(RestClient.Builder restClientBuilder) {
         SimpleClientHttpRequestFactory f = new SimpleClientHttpRequestFactory();
         f.setConnectTimeout(HTTP_TIMEOUT_MS);
         f.setReadTimeout(HTTP_TIMEOUT_MS);
-        return new RestTemplate(f);
+        return restClientBuilder.requestFactory(f).build();
     }
 
     // -------------------------------------------------------------------------

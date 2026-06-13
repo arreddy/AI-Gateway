@@ -1,11 +1,10 @@
 package com.astra.gateway.client;
 
 import com.astra.gateway.config.ServicesProperties;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
-import org.springframework.web.client.RestTemplate;
+import org.springframework.web.client.RestClient;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -17,11 +16,15 @@ import java.util.Map;
  */
 @Slf4j
 @Component
-@RequiredArgsConstructor
 public class ObservabilityClient {
 
-    private final RestTemplate restTemplate;
+    private final RestClient restClient;
     private final ServicesProperties servicesProperties;
+
+    public ObservabilityClient(RestClient.Builder restClientBuilder, ServicesProperties servicesProperties) {
+        this.restClient = restClientBuilder.build();
+        this.servicesProperties = servicesProperties;
+    }
 
     @Async
     public void record(String provider, String model, long latencyMs,
@@ -40,7 +43,7 @@ public class ObservabilityClient {
 
             String url = servicesProperties.getObservability().getUrl()
                          + "/v1/observability/metrics/record";
-            restTemplate.postForEntity(url, payload, Void.class);
+            restClient.post().uri(url).body(payload).retrieve().toBodilessEntity();
         } catch (Exception e) {
             log.warn("Failed to publish metrics to observability-service: {}", e.getMessage());
         }

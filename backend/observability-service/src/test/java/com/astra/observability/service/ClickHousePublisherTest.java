@@ -9,9 +9,12 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.client.RestTemplate;
+import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.web.client.RestClient;
+
+import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.*;
@@ -21,7 +24,16 @@ import static org.mockito.Mockito.*;
 class ClickHousePublisherTest {
 
     @Mock
-    private RestTemplate restTemplate;
+    private RestClient restClient;
+
+    @Mock
+    private RestClient.RequestBodyUriSpec requestBodyUriSpec;
+
+    @Mock
+    private RestClient.RequestBodySpec requestBodySpec;
+
+    @Mock
+    private RestClient.ResponseSpec responseSpec;
 
     private ClickHouseProperties props;
     private ClickHousePublisher publisher;
@@ -36,41 +48,39 @@ class ClickHousePublisherTest {
         props.setPassword("");
         props.setBatchSize(500);
 
-        publisher = new ClickHousePublisher(props, JsonMapper.builder().build(), restTemplate);
+        publisher = new ClickHousePublisher(props, JsonMapper.builder().build(), RestClient.builder());
+        ReflectionTestUtils.setField(publisher, "restClient", restClient);
     }
 
     @Test
     void flush_emptyBuffer_doesNotCallRestTemplate() {
         publisher.flush();
-        verifyNoInteractions(restTemplate);
+        verifyNoInteractions(restClient);
     }
 
     @Test
     void flush_singleEvent_postsToClickHouse() {
-        when(restTemplate.postForEntity(anyString(), any(), eq(String.class)))
-            .thenReturn(ResponseEntity.ok("Ok."));
+        stubRestClientChain();
 
         publisher.enqueue(sampleEvent("req-1", "anthropic"));
         publisher.flush();
 
-        verify(restTemplate).postForEntity(anyString(), any(HttpEntity.class), eq(String.class));
+        verify(requestBodySpec).body(any(String.class));
     }
 
     @Test
     void flush_multipleEvents_sendsAllInBody() {
-        when(restTemplate.postForEntity(anyString(), any(), eq(String.class)))
-            .thenReturn(ResponseEntity.ok("Ok."));
+        stubRestClientChain();
 
         publisher.enqueue(sampleEvent("req-1", "anthropic"));
         publisher.enqueue(sampleEvent("req-2", "openai"));
         publisher.enqueue(sampleEvent("req-3", "google"));
         publisher.flush();
 
-        @SuppressWarnings("unchecked")
-        ArgumentCaptor<HttpEntity<String>> captor = ArgumentCaptor.forClass(HttpEntity.class);
-        verify(restTemplate).postForEntity(anyString(), captor.capture(), eq(String.class));
+        ArgumentCaptor<String> bodyCaptor = ArgumentCaptor.forClass(String.class);
+        verify(requestBodySpec).body(bodyCaptor.capture());
 
-        String body = captor.getValue().getBody();
+        String body = bodyCaptor.getValue();
         assertThat(body).contains("req-1").contains("req-2").contains("req-3");
         long lineCount = body.lines().filter(l -> !l.isBlank()).count();
         assertThat(lineCount).isEqualTo(3);
@@ -78,8 +88,8 @@ class ClickHousePublisherTest {
 
     @Test
     void flush_clickHouseThrows_doesNotPropagate() {
-        when(restTemplate.postForEntity(anyString(), any(), eq(String.class)))
-            .thenThrow(new RuntimeException("ClickHouse unavailable"));
+        stubRestClientChain();
+        when(responseSpec.toEntity(String.class)).thenThrow(new RuntimeException("ClickHouse unavailable"));
 
         publisher.enqueue(sampleEvent("req-1", "anthropic"));
         publisher.flush(); // must not throw
@@ -87,56 +97,58 @@ class ClickHousePublisherTest {
 
     @Test
     void flush_afterException_bufferIsCleared() {
-        when(restTemplate.postForEntity(anyString(), any(), eq(String.class)))
-            .thenThrow(new RuntimeException("down"));
+        stubRestClientChain();
+        when(responseSpec.toEntity(String.class)).thenThrow(new RuntimeException("down"));
 
         publisher.enqueue(sampleEvent("req-1", "anthropic"));
         publisher.flush();
 
-        reset(restTemplate);
+        reset(restClient);
         publisher.flush(); // buffer should be empty now
-        verifyNoInteractions(restTemplate);
+        verifyNoInteractions(restClient);
     }
 
     @Test
     void flush_insertUrlContainsDatabase() {
-        when(restTemplate.postForEntity(anyString(), any(), eq(String.class)))
-            .thenReturn(ResponseEntity.ok("Ok."));
+        stubRestClientChain();
 
         publisher.enqueue(sampleEvent("req-1", "anthropic"));
         publisher.flush();
 
         ArgumentCaptor<String> urlCaptor = ArgumentCaptor.forClass(String.class);
-        verify(restTemplate).postForEntity(urlCaptor.capture(), any(), eq(String.class));
+        verify(requestBodyUriSpec).uri(urlCaptor.capture());
 
         assertThat(urlCaptor.getValue()).contains("astra").contains("gateway_metrics").contains("INSERT");
     }
 
     @Test
+    @SuppressWarnings("unchecked")
     void flush_withBasicAuth_setsAuthHeader() {
         props.setUser("admin");
         props.setPassword("secret");
-        publisher = new ClickHousePublisher(props, JsonMapper.builder().build(), restTemplate);
+        publisher = new ClickHousePublisher(props, JsonMapper.builder().build(), RestClient.builder());
+        ReflectionTestUtils.setField(publisher, "restClient", restClient);
 
-        when(restTemplate.postForEntity(anyString(), any(), eq(String.class)))
-            .thenReturn(ResponseEntity.ok("Ok."));
+        stubRestClientChain();
 
         publisher.enqueue(sampleEvent("req-1", "anthropic"));
         publisher.flush();
 
-        @SuppressWarnings("unchecked")
-        ArgumentCaptor<HttpEntity<String>> captor = ArgumentCaptor.forClass(HttpEntity.class);
-        verify(restTemplate).postForEntity(anyString(), captor.capture(), eq(String.class));
-        assertThat(captor.getValue().getHeaders().getFirst("Authorization")).startsWith("Basic ");
+        ArgumentCaptor<Consumer<HttpHeaders>> headersCaptor = ArgumentCaptor.forClass(Consumer.class);
+        verify(requestBodySpec).headers(headersCaptor.capture());
+
+        HttpHeaders headers = new HttpHeaders();
+        headersCaptor.getValue().accept(headers);
+        assertThat(headers.getFirst("Authorization")).startsWith("Basic ");
     }
 
     @Test
     void flush_respectsBatchSize() {
         props.setBatchSize(2);
-        publisher = new ClickHousePublisher(props, JsonMapper.builder().build(), restTemplate);
+        publisher = new ClickHousePublisher(props, JsonMapper.builder().build(), RestClient.builder());
+        ReflectionTestUtils.setField(publisher, "restClient", restClient);
 
-        when(restTemplate.postForEntity(anyString(), any(), eq(String.class)))
-            .thenReturn(ResponseEntity.ok("Ok."));
+        stubRestClientChain();
 
         publisher.enqueue(sampleEvent("req-1", "anthropic"));
         publisher.enqueue(sampleEvent("req-2", "openai"));
@@ -145,7 +157,18 @@ class ClickHousePublisherTest {
         publisher.flush(); // should send first 2
         publisher.flush(); // should send remaining 1
 
-        verify(restTemplate, times(2)).postForEntity(anyString(), any(), eq(String.class));
+        verify(restClient, times(2)).post();
+    }
+
+    @SuppressWarnings("unchecked")
+    private void stubRestClientChain() {
+        when(restClient.post()).thenReturn(requestBodyUriSpec);
+        when(requestBodyUriSpec.uri(anyString())).thenReturn(requestBodySpec);
+        when(requestBodySpec.contentType(any())).thenReturn(requestBodySpec);
+        when(requestBodySpec.headers(any(Consumer.class))).thenReturn(requestBodySpec);
+        when(requestBodySpec.body(any(String.class))).thenReturn(requestBodySpec);
+        when(requestBodySpec.retrieve()).thenReturn(responseSpec);
+        when(responseSpec.toEntity(String.class)).thenReturn(ResponseEntity.ok("Ok."));
     }
 
     private GatewayMetricEvent sampleEvent(String requestId, String provider) {

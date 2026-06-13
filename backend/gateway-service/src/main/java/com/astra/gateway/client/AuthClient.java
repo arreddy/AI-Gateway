@@ -2,7 +2,6 @@ package com.astra.gateway.client;
 
 import com.astra.gateway.config.ServicesProperties;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.core.ParameterizedTypeReference;
@@ -10,7 +9,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpClientErrorException;
-import org.springframework.web.client.RestTemplate;
+import org.springframework.web.client.RestClient;
 
 import java.util.Map;
 
@@ -28,16 +27,16 @@ public class AuthClient {
         }
     }
 
-    private final RestTemplate http;
+    private final RestClient http;
     private final ServicesProperties services;
 
-    public AuthClient(ServicesProperties services) {
+    public AuthClient(ServicesProperties services, RestClient.Builder restClientBuilder) {
         this.services = services;
         int ms = services.getAuth().getTimeoutMs();
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
         factory.setConnectTimeout(ms);
         factory.setReadTimeout(ms);
-        this.http = new RestTemplate(factory);
+        this.http = restClientBuilder.requestFactory(factory).build();
     }
 
     public ValidationResult validate(String authorizationHeader) {
@@ -51,15 +50,11 @@ public class AuthClient {
         }
 
         try {
-            HttpHeaders headers = new HttpHeaders();
-            headers.set(HttpHeaders.AUTHORIZATION, authorizationHeader);
-
-            ResponseEntity<Map<String, Object>> response = http.exchange(
-                services.getAuth().getUrl() + "/v1/auth/api-key/validate",
-                HttpMethod.POST,
-                new HttpEntity<>(headers),
-                new ParameterizedTypeReference<Map<String, Object>>() {}
-            );
+            ResponseEntity<Map<String, Object>> response = http.method(HttpMethod.POST)
+                .uri(services.getAuth().getUrl() + "/v1/auth/api-key/validate")
+                .header(HttpHeaders.AUTHORIZATION, authorizationHeader)
+                .retrieve()
+                .toEntity(new ParameterizedTypeReference<Map<String, Object>>() {});
 
             Map<String, Object> body = response.getBody();
             if (body != null && Boolean.TRUE.equals(body.get("valid"))) {

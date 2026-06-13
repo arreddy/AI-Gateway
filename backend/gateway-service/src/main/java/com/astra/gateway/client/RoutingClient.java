@@ -5,7 +5,7 @@ import com.astra.gateway.service.ProviderService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
-import org.springframework.web.client.RestTemplate;
+import org.springframework.web.client.RestClient;
 
 import java.util.Map;
 
@@ -18,11 +18,11 @@ import java.util.Map;
 @Component
 public class RoutingClient {
 
-    private final RestTemplate http;
+    private final RestClient http;
     private final ServicesProperties services;
     private final ProviderService providerService;
 
-    public RoutingClient(ServicesProperties services, ProviderService providerService) {
+    public RoutingClient(ServicesProperties services, ProviderService providerService, RestClient.Builder restClientBuilder) {
         this.services        = services;
         this.providerService = providerService;
 
@@ -31,7 +31,7 @@ public class RoutingClient {
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
         factory.setConnectTimeout(ms);
         factory.setReadTimeout(ms);
-        this.http = new RestTemplate(factory);
+        this.http = restClientBuilder.requestFactory(factory).build();
     }
 
     /**
@@ -45,7 +45,7 @@ public class RoutingClient {
             String url = services.getRouting().getUrl() + "/v1/routing/decide";
             Map<String, String> body = Map.of("model", model, "strategy", effectiveStrategy);
 
-            Map<String, Object> response = http.postForObject(url, body, Map.class);
+            Map<String, Object> response = http.post().uri(url).body(body).retrieve().body(Map.class);
             if (response != null && response.containsKey("selected_provider")) {
                 String provider = response.get("selected_provider").toString();
                 log.debug("Routing decision: model={} strategy={} → provider={}", model, effectiveStrategy, provider);
