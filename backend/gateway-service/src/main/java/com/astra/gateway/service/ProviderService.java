@@ -11,6 +11,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
+import reactor.core.publisher.Flux;
 
 import java.time.Duration;
 import java.util.*;
@@ -119,6 +120,60 @@ public class ProviderService {
         }
 
         return response;
+    }
+
+    /**
+     * True incremental SSE streaming, passed through from the provider's own streaming
+     * endpoint. Only OpenAI-compatible providers (openai, google) are supported here —
+     * Anthropic uses a different SSE event format and falls back to single-shot streaming
+     * in the controller.
+     */
+    public Flux<String> streamChatCompletion(JsonNode request, String provider) {
+        return switch (provider) {
+            case "openai" -> streamOpenAI(request);
+            case "google" -> streamGoogle(request);
+            default -> Flux.error(new UnsupportedOperationException(
+                "Token streaming is not supported for provider: " + provider));
+        };
+    }
+
+    private Flux<String> streamOpenAI(JsonNode request) {
+        if (openaiApiKey == null || openaiApiKey.isEmpty()) {
+            return Flux.error(new IllegalStateException("OpenAI API key not configured"));
+        }
+
+        ObjectNode streamRequest = (ObjectNode) request.deepCopy();
+        streamRequest.put("stream", true);
+
+        return webClientBuilder.build()
+            .post()
+            .uri(openaiBaseUrl + "/v1/chat/completions")
+            .header(HttpHeaders.AUTHORIZATION, "Bearer " + openaiApiKey)
+            .contentType(MediaType.APPLICATION_JSON)
+            .accept(MediaType.TEXT_EVENT_STREAM)
+            .bodyValue(objectMapper.writeValueAsString(streamRequest))
+            .retrieve()
+            .bodyToFlux(String.class);
+    }
+
+    private Flux<String> streamGoogle(JsonNode request) {
+        if (googleApiKey == null || googleApiKey.isEmpty()) {
+            return Flux.error(new IllegalStateException("Google API key not configured"));
+        }
+
+        ObjectNode streamRequest = (ObjectNode) request.deepCopy();
+        streamRequest.put("stream", true);
+
+        // Google's OpenAI-compatible endpoint accepts the same request format
+        return webClientBuilder.build()
+            .post()
+            .uri(googleBaseUrl + "/chat/completions")
+            .header(HttpHeaders.AUTHORIZATION, "Bearer " + googleApiKey)
+            .contentType(MediaType.APPLICATION_JSON)
+            .accept(MediaType.TEXT_EVENT_STREAM)
+            .bodyValue(objectMapper.writeValueAsString(streamRequest))
+            .retrieve()
+            .bodyToFlux(String.class);
     }
 
     public String resolveProvider(String model) {

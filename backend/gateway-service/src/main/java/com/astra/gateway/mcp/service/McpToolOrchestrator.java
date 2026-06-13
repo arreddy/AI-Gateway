@@ -47,6 +47,11 @@ public class McpToolOrchestrator {
     // Entry point
     // -------------------------------------------------------------------------
 
+    /** Whether any MCP/A2A tools are currently available to inject into requests. */
+    public boolean hasTools() {
+        return !gatherAllTools().isEmpty();
+    }
+
     public JsonNode completeWithTools(JsonNode request, String provider) throws Exception {
         List<McpToolDefinition> tools = gatherAllTools();
 

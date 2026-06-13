@@ -17,7 +17,9 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.io.IOException;
 import java.util.Map;
+import java.util.Set;
 
 @Slf4j
 @RestController
@@ -82,6 +84,8 @@ public class GatewayController {
         }
     }
 
+    private static final Set<String> TOKEN_STREAMING_PROVIDERS = Set.of("openai", "google");
+
     @PostMapping(value = "/chat/completions", params = "stream=true")
     public SseEmitter streamChatCompletion(
             @RequestBody JsonNode request,
@@ -95,10 +99,58 @@ public class GatewayController {
 
         meterRegistry.counter("gateway.stream.requests.total", "model", model).increment();
 
+        if (TOKEN_STREAMING_PROVIDERS.contains(provider) && !mcpToolOrchestrator.hasTools()) {
+            streamFromProvider(request, provider, model, tenantId, emitter);
+        } else {
+            streamSingleShot(request, provider, model, tenantId, emitter);
+        }
+
+        return emitter;
+    }
+
+    /** True incremental SSE streaming: passes provider chunks straight through to the client. */
+    private void streamFromProvider(JsonNode request, String provider, String model, String tenantId, SseEmitter emitter) {
+        long startMs = System.currentTimeMillis();
+        log.info("Stream (token): model={} provider={} tenant={}", model, provider, tenantId);
+
+        providerService.streamChatCompletion(request, provider)
+            .filter(chunk -> !"[DONE]".equals(chunk))
+            .subscribe(
+                chunk -> {
+                    try {
+                        emitter.send(SseEmitter.event().data(chunk));
+                    } catch (IOException e) {
+                        throw new RuntimeException(e);
+                    }
+                },
+                error -> {
+                    int latency = (int) (System.currentTimeMillis() - startMs);
+                    log.error("Stream failed for model {}: {}", model, error.getMessage());
+                    meterRegistry.counter("gateway.stream.requests.error", "model", model).increment();
+                    observabilityClient.record(provider, model, latency, 0, 0, 0.0, "failed", tenantId);
+                    emitter.completeWithError(error);
+                },
+                () -> {
+                    int latency = (int) (System.currentTimeMillis() - startMs);
+                    try {
+                        emitter.send(SseEmitter.event().data("[DONE]"));
+                        emitter.complete();
+                    } catch (IOException e) {
+                        emitter.completeWithError(e);
+                        return;
+                    }
+                    meterRegistry.counter("gateway.stream.requests.success", "model", model).increment();
+                    observabilityClient.record(provider, model, latency, 0, 0, 0.0, "success", tenantId);
+                }
+            );
+    }
+
+    /** Fallback for Anthropic and tool-augmented requests: one SSE event with the full response. */
+    private void streamSingleShot(JsonNode request, String provider, String model, String tenantId, SseEmitter emitter) {
         new Thread(() -> {
             long startMs = System.currentTimeMillis();
             try {
-                log.info("Stream: model={} provider={} tenant={}", model, provider, tenantId);
+                log.info("Stream (single-shot): model={} provider={} tenant={}", model, provider, tenantId);
                 JsonNode response    = mcpToolOrchestrator.completeWithTools(request, provider);
                 int latency          = (int) (System.currentTimeMillis() - startMs);
                 int inputTokens      = response.path("usage").path("prompt_tokens").asInt(0);
@@ -119,8 +171,6 @@ public class GatewayController {
                 emitter.completeWithError(e);
             }
         }).start();
-
-        return emitter;
     }
 
     @GetMapping("/models")
